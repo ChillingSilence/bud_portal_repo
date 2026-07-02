@@ -13,9 +13,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             Audit::undo($pdo, $log_id);
             $message = "Action undone successfully.";
-            // Log the undo? Logic in Audit::undo generates a new log implicitly if the app code calls Audit::log, 
-            // but here we are calling SQL directly in Audit::undo. 
-            // To maintain chain, we might ideally log this too, but for now we leave it simple.
+            // Audit::undo writes the reversal to the audit log itself
+            // (changed_by = 'UNDO'), so the chain stays complete.
         } catch (Exception $e) {
             $message = "Error undoing action: " . $e->getMessage();
         }

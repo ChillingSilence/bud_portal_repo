@@ -9,6 +9,9 @@
 ### Changed
 - **Documentation**: DOCS.md now covers data storage, persistence and backup guidance; README lists the Analytics page.
 
+### Fixed
+- **Admin Undo**: The "Undo Last Action" button previously crashed with a fatal error (`Audit::undo` was never implemented). It now reverses the last change (deletes an insert, restores an update, re-inserts a deletion) inside a transaction, logs the reversal to the audit trail, and refuses undos that cannot be applied safely.
+
 ## [0.13.4]
 - **Admin**: Added JSON database export for debugging — exports all tables as a downloadable `.json` file from the Admin Dashboard.
 

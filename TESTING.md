@@ -56,6 +56,7 @@ success.
 | `tests/check_schema.sh` | `schema.sql` loads cleanly and creates all 11 tables (including columns added over time, e.g. `invoiced_at`), foreign keys resolve — the **fresh install** path | sqlite3 |
 | `tests/upgrade_test.sh` | config.php auto-migrations upgrade an existing pre-0.14 database with live data: columns added, historical completed transfers backfilled as invoiced, migration idempotent — the **in-place upgrade** path | php-cli (pdo_sqlite) |
 | `tests/smoke_test.sh` | Every page renders without PHP errors against a fresh DB; `BUD_DB_PATH` is honoured; the ephemeral-storage guard fires under the Supervisor | php-cli (pdo_sqlite), curl |
+| `tests/audit_undo_test.sh` | `Audit::undo()` (Admin "Undo Last Action") reverses INSERT/UPDATE/DELETE, logs each reversal, and refuses unsafe undos | php-cli (pdo_sqlite) |
 | `tests/docker_persistence_test.sh` | Full container: DB created on the `/data` volume only, and data survives container destruction/recreation | docker, curl |
 
 Run everything that doesn't need Docker:

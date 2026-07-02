@@ -54,6 +54,17 @@ jobs:
           extensions: pdo_sqlite
       - run: bash tests/upgrade_test.sh
 
+  audit-undo:
+    name: Audit undo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite
+      - run: bash tests/audit_undo_test.sh
+
   addon-lint:
     name: Home Assistant add-on lint
     runs-on: ubuntu-latest
