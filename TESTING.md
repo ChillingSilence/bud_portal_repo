@@ -91,8 +91,11 @@ BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21 PORT=9000 bash tests/docker_pe
   (Raspberry Pi) breakage is caught before release.
 
 There is no deploy step: Home Assistant installs add-ons straight from this
-git repository, so merging to `main` *is* the release. Bump `version` in
-`bud_addon/config.yaml` and add a `CHANGELOG.md` entry with each release —
+git repository, so the moment a change reaches `main` it is live for
+installed instances. For that reason `main` is protected — **never commit or
+push to `main` directly**. Every change goes through a pull request, and
+merging the PR (with CI green) is the release. Bump `version` in
+`bud_addon/config.yaml` and add a `CHANGELOG.md` entry as part of the PR —
 installed instances only see an update when the version changes.
 
 ## Manual testing on a real Home Assistant instance
