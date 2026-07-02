@@ -9,6 +9,9 @@
 ### Changed
 - **Documentation**: DOCS.md now covers data storage, persistence and backup guidance; README lists the Analytics page.
 
+### Removed
+- **Time Sheet**: The staff clock-in/out feature has been removed entirely — the page, its navigation and dashboard links, and the `time_logs` database table (dropped automatically on upgrade, including its audit log entries).
+
 ### Fixed
 - **Admin Undo**: The "Undo Last Action" button previously crashed with a fatal error (`Audit::undo` was never implemented). It now reverses the last change (deletes an insert, restores an update, re-inserts a deletion) inside a transaction, logs the reversal to the audit trail, and refuses undos that cannot be applied safely.
 

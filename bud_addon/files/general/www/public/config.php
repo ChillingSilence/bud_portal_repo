@@ -89,6 +89,16 @@ try {
             SET invoiced_at = COALESCE(completed_at, created_at, CURRENT_TIMESTAMP)
             WHERE status = 'Completed'");
     }
+
+    // v0.14: Time Sheet feature removed — drop its table and audit entries
+    $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='time_logs'");
+    $has_time_logs = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($has_time_logs) {
+        $pdo->exec("DROP TABLE time_logs");
+        $pdo->exec("DELETE FROM audit_log WHERE table_name = 'time_logs'");
+    }
 } catch (PDOException $e) {
     die("Database connection failed: " . $e->getMessage());
 }

@@ -1,7 +1,7 @@
 # BUD Portal
 
 BUD (Business Utility Dashboard) provides stock management, chain of custody
-tracking, scheduling, timesheets and regulatory reporting.
+tracking, scheduling and regulatory reporting.
 
 ## Data storage & persistence
 
@@ -27,7 +27,7 @@ temporary container storage.
 - **Suppliers / Stock / Bundles** — inventory management.
 - **Chain of Custody** — two-phase transfer tracking with digital signatures
   and packing slips.
-- **Scheduling / Time Sheet** — cleaning rosters and staff clock-in/out.
+- **Scheduling** — cleaning rosters and recurring tasks.
 - **Reports** — controlled-substance Materials In/Out and MCA (Ministry of
   Health) report with CSV export.
 - **Analytics** — materials-out volumes by month with product and buyer

@@ -13,7 +13,7 @@ echo "== Schema validation =="
 
 sqlite3 "$TMP/schema_test.db" < "$SCHEMA"
 
-expected="suppliers stock_items audit_log time_logs cleaning_schedules cleaning_logs \
+expected="suppliers stock_items audit_log cleaning_schedules cleaning_logs \
 chain_of_custody materials_out_reports product_bundles bundle_items verified_receivers"
 
 fail=0
@@ -25,6 +25,18 @@ for table in $expected; do
         fail=1
     else
         echo "  ok: $table"
+    fi
+done
+
+# Removed features must not come back on fresh installs
+for table in time_logs; do
+    found=$(sqlite3 "$TMP/schema_test.db" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table';")
+    if [ "$found" != "0" ]; then
+        echo "FAIL: removed table '$table' is still created by schema.sql" >&2
+        fail=1
+    else
+        echo "  ok: $table stays removed"
     fi
 done
 

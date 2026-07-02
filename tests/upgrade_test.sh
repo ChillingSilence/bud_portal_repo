@@ -44,6 +44,28 @@ $pdo->exec("INSERT INTO chain_of_custody (form_date, destination, transported_by
     VALUES ('2026-01-15', 'Historic Pharmacy', 'Sam', '[]', 'Completed', '2026-01-15 10:00:00')");
 $pdo->exec("INSERT INTO chain_of_custody (form_date, destination, transported_by, coc_items, status)
     VALUES ('2026-06-20', 'Current Pharmacy', 'Sam', '[]', 'In Progress')");
+
+// Pre-0.14 installs also had the (since removed) Time Sheet feature
+$pdo->exec("CREATE TABLE time_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_name TEXT NOT NULL,
+    action TEXT CHECK(action IN ('IN', 'OUT')) NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+)");
+$pdo->exec("INSERT INTO time_logs (staff_name, action) VALUES ('Sam', 'IN')");
+$pdo->exec("CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    changed_by TEXT DEFAULT 'SYSTEM',
+    old_values JSON,
+    new_values JSON,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)");
+$pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('time_logs', 1, 'INSERT')");
+$pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('stock_items', 1, 'UPDATE')");
 echo "setup ok\n";
 PHP
 php "$TMP/setup.php"
@@ -72,6 +94,18 @@ else { echo "  ok: in-progress transfer left un-invoiced\n"; }
 $count = $pdo->query("SELECT COUNT(*) FROM chain_of_custody")->fetchColumn();
 if ($count != 2) { echo "FAIL: expected 2 rows after migration, got $count\n"; $fail = 1; }
 else { echo "  ok: no rows lost or duplicated\n"; }
+
+$tl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='time_logs'")->fetchColumn();
+if ($tl != 0) { echo "FAIL: time_logs table was not dropped by migration\n"; $fail = 1; }
+else { echo "  ok: time_logs table dropped\n"; }
+
+$tl_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name='time_logs'")->fetchColumn();
+if ($tl_audit != 0) { echo "FAIL: time_logs audit entries were not purged\n"; $fail = 1; }
+else { echo "  ok: time_logs audit entries purged\n"; }
+
+$other_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name='stock_items'")->fetchColumn();
+if ($other_audit != 1) { echo "FAIL: unrelated audit entries were lost\n"; $fail = 1; }
+else { echo "  ok: unrelated audit entries preserved\n"; }
 
 exit($fail);
 PHP

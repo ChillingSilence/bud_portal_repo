@@ -82,7 +82,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'suppliers',
         'cleaning_schedules',
         'cleaning_logs',
-        'time_logs',
     ];
 
     $export = ['exported_at' => date('Y-m-d H:i:s T'), 'tables' => []];

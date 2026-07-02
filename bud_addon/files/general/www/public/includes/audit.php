@@ -39,7 +39,6 @@ class Audit
         $allowed_tables = [
             'suppliers',
             'stock_items',
-            'time_logs',
             'cleaning_schedules',
             'cleaning_logs',
             'chain_of_custody',

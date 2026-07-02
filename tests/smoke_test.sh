@@ -42,7 +42,7 @@ for i in $(seq 1 20); do
     sleep 0.5
 done
 
-PAGES="index.php suppliers.php stock.php custody.php bundles.php receivers.php scheduling.php timesheet.php reports.php analytics.php admin.php"
+PAGES="index.php suppliers.php stock.php custody.php bundles.php receivers.php scheduling.php reports.php analytics.php admin.php"
 fail=0
 for page in $PAGES; do
     if ! body=$(curl -fsS "http://127.0.0.1:$PORT/$page"); then

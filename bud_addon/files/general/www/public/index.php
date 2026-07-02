@@ -59,12 +59,6 @@ try {
             </div>
 
             <div class="glass-panel">
-                <h3>⏱️ Time Tracking</h3>
-                <p>Sign in or out for your shift.</p>
-                <a href="timesheet.php" class="btn">Time Sheet</a>
-            </div>
-
-            <div class="glass-panel">
                 <h3>🗓️ Scheduling</h3>
                 <p>View or complete scheduled tasks.</p>
                 <a href="scheduling.php" class="btn">Scheduling</a>

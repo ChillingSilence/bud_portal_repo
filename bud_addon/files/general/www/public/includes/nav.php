@@ -21,7 +21,6 @@ function isActive($page, $current)
             <li><a href="suppliers.php" class="<?= isActive('suppliers.php', $current_page) ?>">Suppliers</a></li>
             <li><a href="stock.php" class="<?= isActive('stock.php', $current_page) ?>">Stock</a></li>
             <li><a href="custody.php" class="<?= isActive('custody.php', $current_page) ?>">Chain of Custody</a></li>
-            <li><a href=" timesheet.php" class="<?= isActive('timesheet.php', $current_page) ?>">Time Sheet</a></li>
             <li><a href="scheduling.php" class="<?= isActive('scheduling.php', $current_page) ?>">Scheduling</a></li>
             <li><a href=" reports.php" class="<?= isActive('reports.php', $current_page) ?>">Reports</a></li>
             <li><a href="analytics.php" class="<?= isActive('analytics.php', $current_page) ?>">Analytics</a></li>
