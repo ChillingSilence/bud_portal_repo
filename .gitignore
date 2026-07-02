@@ -1,0 +1,7 @@
+# Local-development fallback database (never ship a DB in the image;
+# production data lives on the persistent /data volume)
+bud_addon/files/general/www/public/database/*.db
+bud_addon/files/general/www/public/database/*.sqlite*
+
+# Claude Code workspace
+.claude/

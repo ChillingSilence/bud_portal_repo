@@ -3,13 +3,24 @@
 // Database Configuration
 date_default_timezone_set('Pacific/Auckland');
 
-$db_file = '/data/bud.db';
+// The database MUST live in /data inside the Home Assistant add-on.
+// /data is the only directory the Supervisor persists across container
+// restarts, rebuilds and add-on updates — anything else is ephemeral.
+// BUD_DB_PATH exists so tests and local development can point at a
+// throwaway database without touching /data.
+$db_file = getenv('BUD_DB_PATH') ?: '/data/bud.db';
 
 try {
-    // Check if the directory exists (for non-container testing compatibility)
     $db_dir = dirname($db_file);
-    if (!is_dir($db_dir) && $db_dir !== '/data') {
-        // Fallback for local testing if /data doesn't exist
+    if (!is_dir($db_dir)) {
+        // Under the HA Supervisor /data is always mounted; if it is missing
+        // we must never fall back to storage inside the container, because
+        // that data would be silently destroyed on the next update.
+        if (getenv('SUPERVISOR_TOKEN') !== false || file_exists('/etc/services.d/nginx/run')) {
+            die("FATAL: database directory '$db_dir' is not available. "
+                . "Refusing to start with ephemeral storage — the database must live in /data.");
+        }
+        // Fallback for local (non add-on) development only
         $db_file = __DIR__ . '/database/bud_inventory.db';
     }
 
