@@ -19,5 +19,11 @@ The **BUD Portal** is a comprehensive Business Utility Dashboard for stock manag
 ## Configuration
 No manual configuration is required. The addon automatically sets up the database in `/data/bud.db`.
 
+## Versioning
+Home Assistant detects addon updates by comparing the `version` field in `config.yaml`. When releasing a new version:
+1.  Bump the `version` string in `bud_addon/config.yaml` (e.g., `"0.13.4"` to `"0.13.5"`).
+2.  Add a matching entry in `CHANGELOG.md`.
+3.  Commit and merge to `main` — Home Assistant will pick up the new version automatically.
+
 ## Documentation & Support
 For advanced documentation, developer notes, and troubleshooting (including database schema details), please refer to the **[Project Repository](https://github.com/Chill-Division/bud_portal_repo)**.

@@ -15,6 +15,17 @@
 ### Fixed
 - **Admin Undo**: The "Undo Last Action" button previously crashed with a fatal error (`Audit::undo` was never implemented). It now reverses the last change (deletes an insert, restores an update, re-inserts a deletion) inside a transaction, logs the reversal to the audit trail, and refuses undos that cannot be applied safely.
 
+## [0.13.6]
+- **Reports**: Switched to single-column stacked layout (Materials In → Materials Out → 12-Month Overview).
+- **Reports**: Moved Export CSV button above the Materials Out heading so copy-selecting the table doesn't capture the button.
+- **Reports**: Removed sub-header from Materials Out panel.
+
+## [0.13.5]
+- **Reports**: Merged duplicate Materials Out and MCA Report into a single panel with Destination, Address, Product, and Qty columns plus CSV export.
+- **Reports**: Simplified product names — now shows item name only (no SKU or bundle reference).
+- **Admin**: Replaced schema upgrade panel with Stock Integrity Check tool — verifies stock quantities against audit history and COC deductions.
+- **Docs**: Added versioning instructions to README for Home Assistant addon releases.
+
 ## [0.13.4]
 - **Admin**: Added JSON database export for debugging — exports all tables as a downloadable `.json` file from the Admin Dashboard.
 

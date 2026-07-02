@@ -18,13 +18,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } catch (Exception $e) {
             $message = "Error undoing action: " . $e->getMessage();
         }
-    } elseif ($action === 'upgrade_schema_v013') {
-        try {
-            require_once 'migrate_v0.13.php';
-            $message = "✅ Schema upgraded to v0.13 successfully. Receiver fields are now active.";
-        } catch (Exception $e) {
-            $message = "Error during migration: " . $e->getMessage();
-        }
     } elseif ($action === 'restore') {
         if (isset($_FILES['db_file']) && $_FILES['db_file']['error'] === UPLOAD_ERR_OK) {
             $uploadPath = $_FILES['db_file']['tmp_name'];
@@ -107,6 +100,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Disposition: attachment; filename="bud_export_' . date('Y-m-d_H-i') . '.json"');
     echo json_encode($export, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+// ── Stock Integrity Check ─────────────────────────────────────────────────────
+$verify_results = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verify_stock') {
+    try {
+        // 1. Current stock
+        $stock_rows = $pdo->query("SELECT id, name, sku, quantity, unit FROM stock_items")->fetchAll();
+        $stock_map = [];
+        foreach ($stock_rows as $s) {
+            $stock_map[$s['id']] = $s;
+        }
+
+        // 2. Bundle component lookup
+        $bundle_comp_rows = $pdo->query("SELECT bundle_id, stock_item_id, quantity FROM bundle_items")->fetchAll();
+        $bundle_comps = [];
+        foreach ($bundle_comp_rows as $bc) {
+            $bundle_comps[$bc['bundle_id']][] = $bc;
+        }
+
+        // 3. Total COC deductions per stock item (stock is deducted at initiation, all statuses count)
+        $coc_rows = $pdo->query("SELECT coc_items FROM chain_of_custody")->fetchAll();
+        $deductions = []; // stock_item_id => total qty deducted
+        foreach ($coc_rows as $coc) {
+            $items = json_decode($coc['coc_items'], true) ?: [];
+            foreach ($items as $item) {
+                $dispatch_qty = floatval($item['qty'] ?? 0);
+                if (strpos($item['item_id'], 'bundle_') === 0) {
+                    $bid = (int) str_replace('bundle_', '', $item['item_id']);
+                    foreach ($bundle_comps[$bid] ?? [] as $comp) {
+                        $sid = (int) $comp['stock_item_id'];
+                        $deductions[$sid] = ($deductions[$sid] ?? 0) + (floatval($comp['quantity']) * $dispatch_qty);
+                    }
+                } else {
+                    $sid = (int) $item['item_id'];
+                    $deductions[$sid] = ($deductions[$sid] ?? 0) + $dispatch_qty;
+                }
+            }
+        }
+
+        // 4. Original quantities from first INSERT audit entry per stock item
+        $insert_rows = $pdo->query("
+            SELECT record_id, new_values FROM audit_log
+            WHERE table_name = 'stock_items' AND action = 'INSERT'
+            ORDER BY id ASC
+        ")->fetchAll();
+        $original_qty = [];
+        foreach ($insert_rows as $r) {
+            $rid = (int) $r['record_id'];
+            if (!isset($original_qty[$rid])) {
+                $nv = json_decode($r['new_values'], true);
+                $original_qty[$rid] = floatval($nv['quantity'] ?? 0);
+            }
+        }
+
+        // 5. Stock additions (UPDATE where qty increased, excluding COC deductions)
+        $update_rows = $pdo->query("
+            SELECT record_id, old_values, new_values FROM audit_log
+            WHERE table_name = 'stock_items' AND action = 'UPDATE'
+            ORDER BY id ASC
+        ")->fetchAll();
+        $additions = [];
+        foreach ($update_rows as $r) {
+            $rid = (int) $r['record_id'];
+            $ov = json_decode($r['old_values'], true);
+            $nv = json_decode($r['new_values'], true);
+            $old_q = floatval($ov['quantity'] ?? 0);
+            $new_q = floatval($nv['quantity'] ?? 0);
+            if ($new_q > $old_q) {
+                $additions[$rid] = ($additions[$rid] ?? 0) + ($new_q - $old_q);
+            }
+        }
+
+        // 6. Build results table
+        $verify_results = [];
+        foreach ($stock_map as $id => $s) {
+            $start    = $original_qty[$id] ?? null;
+            $added    = $additions[$id] ?? 0;
+            $shipped  = $deductions[$id] ?? 0;
+            $expected = ($start !== null) ? ($start + $added - $shipped) : null;
+            $actual   = floatval($s['quantity']);
+            $status   = ($expected !== null && abs($expected - $actual) < 0.01) ? 'OK' : (($expected === null) ? 'NO AUDIT' : 'MISMATCH');
+
+            $verify_results[] = [
+                'name'     => $s['name'],
+                'sku'      => $s['sku'],
+                'unit'     => $s['unit'],
+                'start'    => $start,
+                'added'    => $added,
+                'shipped'  => $shipped,
+                'expected' => $expected,
+                'actual'   => $actual,
+                'status'   => $status,
+            ];
+        }
+    } catch (Exception $e) {
+        $message = "Verify error: " . $e->getMessage();
+    }
 }
 
 // Fetch Last Action
@@ -206,25 +297,55 @@ $last_action = $pdo->query("SELECT * FROM audit_log ORDER BY id DESC LIMIT 1")->
             </div>
         </div>
 
-        <!-- Schema Upgrades -->
-        <div class="glass-panel" style="margin-top: 2rem; border-color: rgba(234, 179, 8, 0.4);">
-            <h3>⬆️ Schema Upgrades <small style="font-size:0.8rem; font-weight:400; color: #eab308;">(interim — remove
-                    in future build)</small></h3>
-            <div style="display: flex; gap: 2rem; align-items: flex-start; flex-wrap: wrap;">
-                <div style="flex: 1; min-width: 250px;">
-                    <h4>v0.13 — Verified Receivers + Two-Phase Chain of Custody</h4>
-                    <p style="font-size: 0.9rem;">Adds <code>receiver_id</code> and <code>received_by</code> columns to
-                        Chain of Custody records, creates the <code>verified_receivers</code> table, and backfills
-                        existing completed records with <em>"Samantha"</em> as the receiver name.</p>
-                    <p style="font-size: 0.85rem; color: #eab308;">⚠️ Safe to run multiple times — idempotent.</p>
-                    <form method="POST"
-                        onsubmit="return confirm('Run v0.13 schema upgrade? This is safe to run on an existing database.');">
-                        <input type="hidden" name="action" value="upgrade_schema_v013">
-                        <button type="submit" class="btn" style="background: #eab308; color: #000;">Upgrade to v0.13
-                            Schema</button>
-                    </form>
+        <!-- Stock Integrity Check -->
+        <div class="glass-panel" style="margin-top: 2rem;">
+            <h3>🔍 Stock Integrity Check</h3>
+            <p style="font-size: 0.9rem; color: var(--text-muted, #aaa); margin-bottom: 1rem;">
+                Recalculates expected stock quantities from audit history and COC deductions, then compares with actual values.
+            </p>
+            <form method="POST">
+                <input type="hidden" name="action" value="verify_stock">
+                <button type="submit" class="btn">Run Verification</button>
+            </form>
+
+            <?php if ($verify_results !== null): ?>
+                <div class="table-responsive" style="margin-top: 1.5rem;">
+                    <table style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Starting</th>
+                                <th>Added</th>
+                                <th>Shipped</th>
+                                <th>Expected</th>
+                                <th>Actual</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($verify_results as $vr): ?>
+                                <tr>
+                                    <td><?= h($vr['name']) ?> <small style="color: var(--text-muted, #888);">(<?= h($vr['sku']) ?>)</small></td>
+                                    <td><?= $vr['start'] !== null ? h($vr['start']) : '<em>?</em>' ?></td>
+                                    <td><?= $vr['added'] > 0 ? '+' . h($vr['added']) : '0' ?></td>
+                                    <td><?= $vr['shipped'] > 0 ? '-' . h($vr['shipped']) : '0' ?></td>
+                                    <td><strong><?= $vr['expected'] !== null ? h($vr['expected']) : '?' ?></strong></td>
+                                    <td><strong><?= h($vr['actual']) ?></strong> <?= h($vr['unit']) ?></td>
+                                    <td>
+                                        <?php if ($vr['status'] === 'OK'): ?>
+                                            <span style="color: #10b981; font-weight: 600;">OK</span>
+                                        <?php elseif ($vr['status'] === 'MISMATCH'): ?>
+                                            <span style="color: #ef4444; font-weight: 600;">MISMATCH</span>
+                                        <?php else: ?>
+                                            <span style="color: #eab308;">NO AUDIT</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
                 </div>
-            </div>
+            <?php endif; ?>
         </div>
     </div>
 </body>
