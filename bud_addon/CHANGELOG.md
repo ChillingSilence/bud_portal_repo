@@ -8,6 +8,7 @@
 
 ### Changed
 - **Documentation**: DOCS.md now covers data storage, persistence and backup guidance; README lists the Analytics page.
+- **Add-on config**: Removed deprecated `codenotary` and `startup` fields and the `armhf`/`armv7`/`i386` architectures (unsupported since Home Assistant 2025.12) per the official add-on linter.
 
 ### Removed
 - **Time Sheet**: The staff clock-in/out feature has been removed entirely — the page, its navigation and dashboard links, and the `time_logs` database table (dropped automatically on upgrade, including its audit log entries).

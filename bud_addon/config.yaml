@@ -1,7 +1,6 @@
 name: "BUD Portal"
 description: "BUD - Business Utility Dashboard"
 url: "https://www.chilldivision.co.nz"
-codenotary: josiah@chilldivision.co.nz
 version: "0.14.0"
 slug: "bud_addon"
 panel_icon: mdi:cannabis
@@ -9,12 +8,8 @@ init: false
 arch:
   - aarch64
   - amd64
-  - armhf
-  - armv7
-  - i386
 ingress: true
 ingress_port: 8420
-startup: application
 
 map:
   - type: addon_config
