@@ -8,6 +8,7 @@ The **BUD Portal** is a comprehensive Business Utility Dashboard for stock manag
 -   **Chain of Custody**: Log controlled substance shipments with digital signatures.
 -   **Scheduling**: Manage cleaning rosters and recurring tasks.
 -   **Timesheets**: Simple staff clock-in/out.
+-   **Analytics**: Materials-out by month with product and buyer breakdown charts.
 -   **Admin Dashboard**: Undo actions, backup/restore database, and export the full database as JSON for debugging.
 
 ## Installation
