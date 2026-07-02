@@ -28,6 +28,20 @@ for table in $expected; do
     fi
 done
 
+# Columns added over time must also exist on FRESH installs (schema.sql must
+# always match what in-place migrations produce — see tests/upgrade_test.sh)
+for col in "chain_of_custody:invoiced_at" "chain_of_custody:receiver_id" "chain_of_custody:received_by"; do
+    table="${col%%:*}"; column="${col##*:}"
+    found=$(sqlite3 "$TMP/schema_test.db" \
+        "SELECT COUNT(*) FROM pragma_table_info('$table') WHERE name='$column';")
+    if [ "$found" != "1" ]; then
+        echo "FAIL: column '$column' missing from '$table' on a fresh install" >&2
+        fail=1
+    else
+        echo "  ok: $table.$column"
+    fi
+done
+
 # Foreign keys must resolve (catches typos in REFERENCES clauses)
 fk_errors=$(sqlite3 "$TMP/schema_test.db" "PRAGMA foreign_key_check;")
 if [ -n "$fk_errors" ]; then

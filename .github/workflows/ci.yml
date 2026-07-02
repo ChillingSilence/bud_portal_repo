@@ -43,6 +43,17 @@ jobs:
           extensions: pdo_sqlite
       - run: bash tests/smoke_test.sh
 
+  upgrade:
+    name: In-place DB upgrade test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite
+      - run: bash tests/upgrade_test.sh
+
   addon-lint:
     name: Home Assistant add-on lint
     runs-on: ubuntu-latest

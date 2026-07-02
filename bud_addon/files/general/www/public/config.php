@@ -74,6 +74,21 @@ try {
     if ($schema && strpos($schema, 'Once-off') === false) {
         require_once 'migrate_v0.12.php';
     }
+
+    // Check for v0.14 schema (invoicing flag on Chain of Custody)
+    $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='chain_of_custody'");
+    $coc_schema = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($coc_schema && strpos($coc_schema, 'invoiced_at') === false) {
+        $pdo->exec("ALTER TABLE chain_of_custody ADD COLUMN invoiced_at DATETIME");
+        // Backfill: transfers completed before this feature existed are
+        // treated as already invoiced, so staff are only prompted for
+        // transfers completed from now on.
+        $pdo->exec("UPDATE chain_of_custody
+            SET invoiced_at = COALESCE(completed_at, created_at, CURRENT_TIMESTAMP)
+            WHERE status = 'Completed'");
+    }
 } catch (PDOException $e) {
     die("Database connection failed: " . $e->getMessage());
 }

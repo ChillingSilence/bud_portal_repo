@@ -32,6 +32,17 @@ enforce it:
 For tests and local development, set `BUD_DB_PATH` to point the app at a
 throwaway database file: `BUD_DB_PATH=/tmp/test.db php -S ...`
 
+## The second rule: schema changes must work on both install paths
+
+Every database change must work as an **in-place upgrade** (existing installs
+with live data — auto-migrations in `config.php`, or admin-triggered migrate
+scripts) *and* on a **fresh install** (`schema.sql`, bootstrapped by
+`index.php` on first run). A change applied to only one path breaks the
+other. Migrations must be idempotent and must never lose data or re-prompt
+for historical records (e.g. the 0.14 invoicing migration backfills
+already-completed transfers as invoiced). `tests/check_schema.sh` covers the
+fresh path; `tests/upgrade_test.sh` covers the upgrade path.
+
 ## Test suite
 
 All scripts live in `tests/` and are plain bash — run them from the repo
@@ -42,7 +53,8 @@ success.
 | --- | --- | --- |
 | `tests/lint.sh` | Every PHP file parses (`php -l`) | php-cli |
 | `tests/check_db_storage.sh` | The `/data` storage rules (static, see above) | bash only |
-| `tests/check_schema.sh` | `schema.sql` loads cleanly and creates all 11 tables, foreign keys resolve | sqlite3 |
+| `tests/check_schema.sh` | `schema.sql` loads cleanly and creates all 11 tables (including columns added over time, e.g. `invoiced_at`), foreign keys resolve — the **fresh install** path | sqlite3 |
+| `tests/upgrade_test.sh` | config.php auto-migrations upgrade an existing pre-0.14 database with live data: columns added, historical completed transfers backfilled as invoiced, migration idempotent — the **in-place upgrade** path | php-cli (pdo_sqlite) |
 | `tests/smoke_test.sh` | Every page renders without PHP errors against a fresh DB; `BUD_DB_PATH` is honoured; the ephemeral-storage guard fires under the Supervisor | php-cli (pdo_sqlite), curl |
 | `tests/docker_persistence_test.sh` | Full container: DB created on the `/data` volume only, and data survives container destruction/recreation | docker, curl |
 

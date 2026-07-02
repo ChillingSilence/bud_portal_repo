@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS chain_of_custody (
   status TEXT DEFAULT 'In Progress',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   completed_at DATETIME,
+  invoiced_at DATETIME,
   FOREIGN KEY (receiver_id) REFERENCES verified_receivers(id) ON DELETE SET NULL
 );
 

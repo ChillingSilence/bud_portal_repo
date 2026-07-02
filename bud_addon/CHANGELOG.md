@@ -2,6 +2,7 @@
 ## [0.14.0] - 2026-07-02
 ### Added
 - **Analytics Page**: New "Analytics" page showing materials-out by month (stacked bar chart per product) and a pie chart of who's been buying which product, with buyer breakdown and monthly totals tables.
+- **Invoicing Flag**: Completed Chain of Custody transfers now show a "Needs Invoice" badge and an "Invoiced" action button (with a confirmation modal) until they are marked as invoiced. Transfers completed before this update are automatically treated as already invoiced, so only new entries prompt for invoicing. The invoiced date appears in the View record.
 - **CI Pipeline**: GitHub Actions workflow running PHP lint, SQLite schema validation, page smoke tests, the official Home Assistant add-on linter, an aarch64 cross-build, and a Docker-based `/data` persistence test. See `TESTING.md`.
 - **Persistent Storage Guard**: The app now refuses to start with ephemeral storage if `/data` is unavailable inside the add-on — the database can never be silently written to storage that is wiped on update. A `BUD_DB_PATH` environment override supports tests and local development.
 
