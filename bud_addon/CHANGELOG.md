@@ -1,4 +1,21 @@
 # Changelog
+## [0.14.0] - 2026-07-02
+### Added
+- **Analytics Page**: New "Analytics" page showing materials-out by month (stacked bar chart per product) and a pie chart of who's been buying which product, with buyer breakdown and monthly totals tables.
+- **Invoicing Flag**: Completed Chain of Custody transfers now show a "Needs Invoice" badge and an "Invoiced" action button (with a confirmation modal) until they are marked as invoiced. Transfers completed before this update are automatically treated as already invoiced, so only new entries prompt for invoicing. The invoiced date appears in the View record.
+- **CI Pipeline**: GitHub Actions workflow running PHP lint, SQLite schema validation, page smoke tests, the official Home Assistant add-on linter, an aarch64 cross-build, and a Docker-based `/data` persistence test. See `TESTING.md`.
+- **Persistent Storage Guard**: The app now refuses to start with ephemeral storage if `/data` is unavailable inside the add-on — the database can never be silently written to storage that is wiped on update. A `BUD_DB_PATH` environment override supports tests and local development.
+
+### Changed
+- **Documentation**: DOCS.md now covers data storage, persistence and backup guidance; README lists the Analytics page.
+- **Add-on config**: Removed deprecated `codenotary` and `startup` fields and the `armhf`/`armv7`/`i386` architectures (unsupported since Home Assistant 2025.12) per the official add-on linter.
+
+### Removed
+- **Time Sheet**: The staff clock-in/out feature has been removed entirely — the page, its navigation and dashboard links, and the `time_logs` database table (dropped automatically on upgrade, including its audit log entries).
+
+### Fixed
+- **Admin Undo**: The "Undo Last Action" button previously crashed with a fatal error (`Audit::undo` was never implemented). It now reverses the last change (deletes an insert, restores an update, re-inserts a deletion) inside a transaction, logs the reversal to the audit trail, and refuses undos that cannot be applied safely.
+
 ## [0.13.6]
 - **Reports**: Switched to single-column stacked layout (Materials In → Materials Out → 12-Month Overview).
 - **Reports**: Moved Export CSV button above the Materials Out heading so copy-selecting the table doesn't capture the button.

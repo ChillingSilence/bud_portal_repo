@@ -1,0 +1,5 @@
+# Shell scripts must stay LF — CRLF breaks bash even in Git Bash on Windows
+*.sh text eol=lf
+# Service scripts in the container image (no extension) must also be LF
+bud_addon/files/**/run text eol=lf
+bud_addon/files/**/finish text eol=lf

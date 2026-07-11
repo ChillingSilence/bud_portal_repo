@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# In-place upgrade test: every schema change must work on databases that
+# already hold live data, not just fresh installs (which check_schema.sh
+# covers). This builds a pre-0.14 database with existing Chain of Custody
+# records, loads config.php so its auto-migrations run, and verifies:
+#
+#   - the invoiced_at column is added,
+#   - transfers completed BEFORE the upgrade are backfilled as invoiced
+#     (so staff are never prompted to invoice historical entries),
+#   - in-progress transfers are left un-invoiced,
+#   - the migration is idempotent (safe to run on every page load).
+#
+# Requires: php-cli with pdo_sqlite.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+PUBLIC="$PWD/bud_addon/files/general/www/public"
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+export BUD_DB_PATH="$TMP/old.db"
+
+echo "== In-place upgrade test =="
+
+# Pre-0.14 chain_of_custody (no invoiced_at) with historical data
+cat > "$TMP/setup.php" <<'PHP'
+<?php
+$pdo = new PDO('sqlite:' . getenv('BUD_DB_PATH'));
+$pdo->exec("CREATE TABLE chain_of_custody (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form_date DATE NOT NULL,
+    origin TEXT DEFAULT 'Main Facility',
+    destination TEXT NOT NULL,
+    receiver_id INTEGER,
+    transported_by TEXT NOT NULL,
+    received_by TEXT,
+    coc_items JSON NOT NULL,
+    signature_image TEXT,
+    status TEXT DEFAULT 'In Progress',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+)");
+$pdo->exec("INSERT INTO chain_of_custody (form_date, destination, transported_by, coc_items, status, completed_at)
+    VALUES ('2026-01-15', 'Historic Pharmacy', 'Sam', '[]', 'Completed', '2026-01-15 10:00:00')");
+$pdo->exec("INSERT INTO chain_of_custody (form_date, destination, transported_by, coc_items, status)
+    VALUES ('2026-06-20', 'Current Pharmacy', 'Sam', '[]', 'In Progress')");
+
+// Pre-0.14 installs also had the (since removed) Time Sheet feature
+$pdo->exec("CREATE TABLE time_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    staff_name TEXT NOT NULL,
+    action TEXT CHECK(action IN ('IN', 'OUT')) NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+)");
+$pdo->exec("INSERT INTO time_logs (staff_name, action) VALUES ('Sam', 'IN')");
+$pdo->exec("CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    table_name TEXT NOT NULL,
+    record_id INTEGER NOT NULL,
+    action TEXT NOT NULL,
+    changed_by TEXT DEFAULT 'SYSTEM',
+    old_values JSON,
+    new_values JSON,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+)");
+$pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('time_logs', 1, 'INSERT')");
+$pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('stock_items', 1, 'UPDATE')");
+echo "setup ok\n";
+PHP
+php "$TMP/setup.php"
+
+# Load config.php twice — the second pass proves idempotence
+php -r 'include $argv[1];' "$PUBLIC/config.php"
+php -r 'include $argv[1];' "$PUBLIC/config.php"
+
+cat > "$TMP/assert.php" <<'PHP'
+<?php
+$pdo = new PDO('sqlite:' . getenv('BUD_DB_PATH'));
+$fail = 0;
+
+$col = $pdo->query("SELECT COUNT(*) FROM pragma_table_info('chain_of_custody') WHERE name='invoiced_at'")->fetchColumn();
+if ($col != 1) { echo "FAIL: invoiced_at column not added by migration\n"; $fail = 1; }
+else { echo "  ok: invoiced_at column added\n"; }
+
+$hist = $pdo->query("SELECT invoiced_at FROM chain_of_custody WHERE destination='Historic Pharmacy'")->fetchColumn();
+if ($hist === null || $hist === false) { echo "FAIL: pre-existing completed transfer was NOT backfilled as invoiced\n"; $fail = 1; }
+else { echo "  ok: historical completed transfer backfilled as invoiced ($hist)\n"; }
+
+$curr = $pdo->query("SELECT invoiced_at FROM chain_of_custody WHERE destination='Current Pharmacy'")->fetchColumn();
+if ($curr !== null) { echo "FAIL: in-progress transfer should not be marked invoiced\n"; $fail = 1; }
+else { echo "  ok: in-progress transfer left un-invoiced\n"; }
+
+$count = $pdo->query("SELECT COUNT(*) FROM chain_of_custody")->fetchColumn();
+if ($count != 2) { echo "FAIL: expected 2 rows after migration, got $count\n"; $fail = 1; }
+else { echo "  ok: no rows lost or duplicated\n"; }
+
+$tl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='time_logs'")->fetchColumn();
+if ($tl != 0) { echo "FAIL: time_logs table was not dropped by migration\n"; $fail = 1; }
+else { echo "  ok: time_logs table dropped\n"; }
+
+$tl_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name='time_logs'")->fetchColumn();
+if ($tl_audit != 0) { echo "FAIL: time_logs audit entries were not purged\n"; $fail = 1; }
+else { echo "  ok: time_logs audit entries purged\n"; }
+
+$other_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name='stock_items'")->fetchColumn();
+if ($other_audit != 1) { echo "FAIL: unrelated audit entries were lost\n"; $fail = 1; }
+else { echo "  ok: unrelated audit entries preserved\n"; }
+
+exit($fail);
+PHP
+
+if php "$TMP/assert.php"; then
+    echo "In-place upgrade test OK"
+else
+    echo "In-place upgrade test FAILED" >&2
+    exit 1
+fi

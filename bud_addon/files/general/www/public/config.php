@@ -3,13 +3,24 @@
 // Database Configuration
 date_default_timezone_set('Pacific/Auckland');
 
-$db_file = '/data/bud.db';
+// The database MUST live in /data inside the Home Assistant add-on.
+// /data is the only directory the Supervisor persists across container
+// restarts, rebuilds and add-on updates — anything else is ephemeral.
+// BUD_DB_PATH exists so tests and local development can point at a
+// throwaway database without touching /data.
+$db_file = getenv('BUD_DB_PATH') ?: '/data/bud.db';
 
 try {
-    // Check if the directory exists (for non-container testing compatibility)
     $db_dir = dirname($db_file);
-    if (!is_dir($db_dir) && $db_dir !== '/data') {
-        // Fallback for local testing if /data doesn't exist
+    if (!is_dir($db_dir)) {
+        // Under the HA Supervisor /data is always mounted; if it is missing
+        // we must never fall back to storage inside the container, because
+        // that data would be silently destroyed on the next update.
+        if (getenv('SUPERVISOR_TOKEN') !== false || file_exists('/etc/services.d/nginx/run')) {
+            die("FATAL: database directory '$db_dir' is not available. "
+                . "Refusing to start with ephemeral storage — the database must live in /data.");
+        }
+        // Fallback for local (non add-on) development only
         $db_file = __DIR__ . '/database/bud_inventory.db';
     }
 
@@ -62,6 +73,31 @@ try {
     // If table exists but schema doesn't have 'Once-off' in the Check constraint
     if ($schema && strpos($schema, 'Once-off') === false) {
         require_once 'migrate_v0.12.php';
+    }
+
+    // Check for v0.14 schema (invoicing flag on Chain of Custody)
+    $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='chain_of_custody'");
+    $coc_schema = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($coc_schema && strpos($coc_schema, 'invoiced_at') === false) {
+        $pdo->exec("ALTER TABLE chain_of_custody ADD COLUMN invoiced_at DATETIME");
+        // Backfill: transfers completed before this feature existed are
+        // treated as already invoiced, so staff are only prompted for
+        // transfers completed from now on.
+        $pdo->exec("UPDATE chain_of_custody
+            SET invoiced_at = COALESCE(completed_at, created_at, CURRENT_TIMESTAMP)
+            WHERE status = 'Completed'");
+    }
+
+    // v0.14: Time Sheet feature removed — drop its table and audit entries
+    $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='time_logs'");
+    $has_time_logs = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($has_time_logs) {
+        $pdo->exec("DROP TABLE time_logs");
+        $pdo->exec("DELETE FROM audit_log WHERE table_name = 'time_logs'");
     }
 } catch (PDOException $e) {
     die("Database connection failed: " . $e->getMessage());

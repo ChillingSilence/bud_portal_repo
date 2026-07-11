@@ -127,6 +127,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Error: " . $e->getMessage();
         }
     }
+
+    // -------------------------------------------------------
+    // PHASE 3: Mark as Invoiced (completed transfers only)
+    // -------------------------------------------------------
+    elseif ($action === 'mark_invoiced') {
+        try {
+            $coc_id = intval($_POST['coc_id']);
+            $stmt = $pdo->prepare("UPDATE chain_of_custody
+                SET invoiced_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND status = 'Completed' AND invoiced_at IS NULL");
+            $stmt->execute([$coc_id]);
+
+            if ($stmt->rowCount() > 0) {
+                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', ['invoiced_at' => null], ['invoiced_at' => date('Y-m-d H:i:s')]);
+                $message = "Transfer #$coc_id marked as invoiced.";
+            } else {
+                $message = "Transfer #$coc_id is not completed or was already invoiced.";
+            }
+        } catch (Exception $e) {
+            $message = "Error: " . $e->getMessage();
+        }
+    }
 }
 
 // Fetch History
@@ -195,6 +217,11 @@ foreach ($receivers as $r) {
         .status-progress {
             background: rgba(234, 179, 8, 0.2);
             color: #eab308;
+        }
+
+        .status-invoice {
+            background: rgba(59, 130, 246, 0.2);
+            color: #3b82f6;
         }
     </style>
 </head>
@@ -328,6 +355,9 @@ foreach ($receivers as $r) {
                                 <td>
                                     <?php if ($row['status'] === 'Completed'): ?>
                                         <span class="status-badge status-complete">✓ Completed</span>
+                                        <?php if (empty($row['invoiced_at'])): ?>
+                                            <span class="status-badge status-invoice">🧾 Needs Invoice</span>
+                                        <?php endif; ?>
                                     <?php else: ?>
                                         <span class="status-badge status-progress">⏳ In Progress</span>
                                     <?php endif; ?>
@@ -348,6 +378,11 @@ foreach ($receivers as $r) {
                                     <?php else: ?>
                                         <button onclick='viewCoc(<?= json_encode($row) ?>)' class="btn"
                                             style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">View</button>
+                                        <?php if (empty($row['invoiced_at'])): ?>
+                                            <button onclick='openInvoice(<?= json_encode($row) ?>)' class="btn"
+                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #3b82f6;">🧾
+                                                Invoiced</button>
+                                        <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
                             </tr>
@@ -402,6 +437,32 @@ foreach ($receivers as $r) {
                 <div style="margin-top: 2rem;">
                     <button type="submit" class="btn" style="background: #10b981;"
                         onclick="return saveCompleteSignature()">Mark as Received ✓</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Invoice Confirmation Modal (Completed, not yet invoiced) -->
+    <div id="invoiceModal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
+        <div class="glass-panel" style="margin: 15vh auto; max-width: 480px; position: relative;">
+            <button onclick="document.getElementById('invoiceModal').style.display='none'"
+                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: var(--text-color); border: 1px solid var(--card-border);">✕
+                Close</button>
+            <h3>🧾 Mark as Invoiced</h3>
+            <div id="invoice-summary"
+                style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
+            </div>
+            <p style="font-size: 0.9rem;">Confirm this shipment has been invoiced. The "Invoiced" button will no longer
+                be shown for this transfer.</p>
+            <form method="POST">
+                <input type="hidden" name="action" value="mark_invoiced">
+                <input type="hidden" name="coc_id" id="invoice_coc_id">
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button type="button" class="btn"
+                        style="background: transparent; border: 1px solid var(--card-border); color: var(--text-color);"
+                        onclick="document.getElementById('invoiceModal').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn" style="background: #3b82f6;">Yes — Mark as Invoiced</button>
                 </div>
             </form>
         </div>
@@ -487,6 +548,15 @@ foreach ($receivers as $r) {
             document.getElementById('completeModal').style.display = 'block';
         }
 
+        // ── Invoice Modal ────────────────────────────────────────────────────
+        function openInvoice(data) {
+            document.getElementById('invoice_coc_id').value = data.id;
+            document.getElementById('invoice-summary').innerHTML =
+                `<strong>Doc #${data.id}</strong> &nbsp;|&nbsp; ${data.form_date}<br>
+                 <strong>To:</strong> ${data.destination}`;
+            document.getElementById('invoiceModal').style.display = 'block';
+        }
+
         // ── View Modal ───────────────────────────────────────────────────────
         function viewCoc(data) {
             const items = JSON.parse(data.coc_items);
@@ -509,6 +579,10 @@ foreach ($receivers as $r) {
                 ? `<div style="margin-top:1rem;"><strong>Received By:</strong> ${data.received_by}</div>`
                 : '';
 
+            const invoiceSection = data.invoiced_at
+                ? `<div style="margin-top:0.5rem;"><strong>Invoiced:</strong> ${data.invoiced_at}</div>`
+                : '';
+
             const sigSection = data.signature_image
                 ? `<div style="margin-top:2rem;"><p><strong>Receiver Signature:</strong></p>
                    <img src="${data.signature_image}" style="border:1px solid #ccc; max-width:100%; height:auto;"></div>`
@@ -529,6 +603,7 @@ foreach ($receivers as $r) {
                 </div>
                 ${itemHtml}
                 ${receivedSection}
+                ${invoiceSection}
                 ${sigSection}
             `;
             document.getElementById('coc-content').innerHTML = html;

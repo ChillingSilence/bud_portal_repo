@@ -45,15 +45,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 4. Time Logs
-CREATE TABLE IF NOT EXISTS time_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  staff_name TEXT NOT NULL,
-  action TEXT CHECK(action IN ('IN', 'OUT')) NOT NULL,
-  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-  notes TEXT
-);
-
 -- 5. Cleaning Schedules
 CREATE TABLE IF NOT EXISTS cleaning_schedules (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +79,7 @@ CREATE TABLE IF NOT EXISTS chain_of_custody (
   status TEXT DEFAULT 'In Progress',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   completed_at DATETIME,
+  invoiced_at DATETIME,
   FOREIGN KEY (receiver_id) REFERENCES verified_receivers(id) ON DELETE SET NULL
 );
 
