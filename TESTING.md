@@ -69,6 +69,8 @@ bash tests/check_schema.sh && bash tests/smoke_test.sh
 Run the full Docker persistence test (a few minutes on first build):
 
 ```bash
+# Builds like the HA Supervisor: no BUILD_FROM passed, so the Dockerfile's
+# default base image must be valid
 bash tests/docker_persistence_test.sh
 # Different base image or port:
 BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21 PORT=9000 bash tests/docker_persistence_test.sh

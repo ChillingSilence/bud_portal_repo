@@ -1,4 +1,8 @@
 # Changelog
+## [0.14.1] - 2026-07-12
+### Fixed
+- **Add-on build failure**: 0.14.0 failed to build on Home Assistant instances ("base name ($BUILD_FROM) should not be blank") because the Supervisor no longer supplies a default `BUILD_FROM`. The Dockerfile now defaults to the official multi-arch base image (`ghcr.io/home-assistant/base:latest`). CI now builds Supervisor-style (without passing `BUILD_FROM`) so a broken default fails CI instead of shipping.
+
 ## [0.14.0] - 2026-07-02
 ### Added
 - **Analytics Page**: New "Analytics" page showing materials-out by month (stacked bar chart per product) and a pie chart of who's been buying which product, with buyer breakdown and monthly totals tables.

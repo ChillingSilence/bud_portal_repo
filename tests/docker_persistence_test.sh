@@ -15,7 +15,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUILD_FROM="${BUILD_FROM:-ghcr.io/home-assistant/amd64-base:latest}"
+# By default BUILD_FROM is NOT passed — exactly how the HA Supervisor builds
+# the add-on. The Dockerfile's default base image must therefore be valid
+# (0.14.0 shipped without one and every real install failed to build, while
+# CI stayed green because it always supplied its own BUILD_FROM).
+BUILD_FROM="${BUILD_FROM:-}"
 IMAGE=bud-addon-test
 NAME=bud-addon-test-run
 PORT="${PORT:-8420}"
@@ -28,9 +32,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "== Docker persistence test (base: $BUILD_FROM) =="
-
-docker build --build-arg BUILD_FROM="$BUILD_FROM" -t "$IMAGE" bud_addon
+if [ -n "$BUILD_FROM" ]; then
+    echo "== Docker persistence test (base override: $BUILD_FROM) =="
+    docker build --build-arg BUILD_FROM="$BUILD_FROM" -t "$IMAGE" bud_addon
+else
+    echo "== Docker persistence test (Supervisor-style build, Dockerfile default base) =="
+    docker build -t "$IMAGE" bud_addon
+fi
 
 start_container() {
     docker run -d --name "$NAME" -v "$DATA_DIR":/data -p "$PORT":8420 "$IMAGE" >/dev/null
