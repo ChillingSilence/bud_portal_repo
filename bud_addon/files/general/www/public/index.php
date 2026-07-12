@@ -75,6 +75,12 @@ try {
                 <p>Generate monthly materials out reports.</p>
                 <a href="reports.php" class="btn">View Reports</a>
             </div>
+
+            <div class="glass-panel">
+                <h3>📈 Analytics</h3>
+                <p>Materials-out by month, with product and buyer breakdowns.</p>
+                <a href="analytics.php" class="btn">View Analytics</a>
+            </div>
         </div>
     </div>
 </body>
