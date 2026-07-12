@@ -1,4 +1,8 @@
 # Changelog
+## [0.14.3] - 2026-07-12
+### Fixed
+- **Reports**: Export CSV button text was invisible in light mode.
+
 ## [0.14.2] - 2026-07-12
 ### Changed
 - **Dashboard**: Added an Analytics tile to the home dashboard (previously only reachable from the navigation bar).

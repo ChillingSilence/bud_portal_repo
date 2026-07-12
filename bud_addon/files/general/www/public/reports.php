@@ -342,7 +342,7 @@ for ($m = 1; $m <= 12; $m++) {
         <div class="glass-panel" style="margin-bottom: 2rem;">
             <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
                 <button onclick="exportMcaCsv()" class="btn"
-                    style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color); font-size: 0.85rem;">
+                    style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color) !important; font-size: 0.85rem;">
                     ⬇ Export CSV
                 </button>
             </div>
