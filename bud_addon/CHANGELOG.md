@@ -1,4 +1,8 @@
 # Changelog
+## [0.17.0] - 2026-08-02
+### Added
+- **S29 Top Orders**: New hidden-by-default "🏆 Top Orders" panel on the S29 page with Patients / Prescribers / Places tabs. Shows the top 10 by total quantity for the current filters, combining separate fills by the same person into one row with order count and first/last order dates. Clicking a name filters the supply records to just theirs.
+
 ## [0.16.1] - 2026-08-02
 ### Fixed
 - **S29 quantity units**: Some pharmacies report gram totals rather than unit counts (e.g. 20 = 2 × 10 g jars). The upload form now has a "Quantities in File" mode — auto-detect (default, treats the file as grams only when every value is a multiple of the grams-per-unit), units as-is, or grams — with a configurable grams-per-unit (default 10). Converted records keep the original gram value, shown alongside the unit count in the register.
