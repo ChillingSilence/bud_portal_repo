@@ -1,4 +1,8 @@
 # Changelog
+## [0.14.4] - 2026-08-02
+### Changed
+- **Sidebar icon**: Changed the Home Assistant panel icon from `mdi:cannabis` to `mdi:truck-delivery` to avoid clashing with another add-on using the same icon.
+
 ## [0.14.3] - 2026-07-12
 ### Fixed
 - **Reports**: Export CSV button text was invisible in light mode.
