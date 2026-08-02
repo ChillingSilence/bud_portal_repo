@@ -48,7 +48,7 @@ cat > "$TMP/full_layout.csv" <<'EOF'
 "Rx number","Date time","Prescriber last name","Prescriber first names","Prescriber facility name","Patient ID","Patient last name","Patient first names","NHI number","DOB","Med cost","Quantity","Med name","Med plu","Directions","Institution","Staff"
 "100001","03/04/26 09:15","Testdoc","Alice","Test Clinic A","P1","Testpatient","Bob","ZZZ0001","01/01/90","100.00","10","WHITE SHERB THC20+CBD1% 20%+1% 10","10000880","Take as directed","","TS"
 "100002","15/04/26 14:30","Testdoc","Alice","Test Clinic A","P2","Testpatient","Carol","ZZZ0002","02/02/91","100.00","20","WHITE SHERB THC20+CBD1% 20%+1% 10","10000880","Take as directed","Synthetic Clinic","TS"
-"100003","28/04/26 16:45","Otherdoc","Dan","Test Clinic B","P3","Testpatient","Eve","ZZZ0003","03/03/92","100.00","15","Thc 20+CBD 1 20%+1% 10","10000880","Take as directed","","TS"
+"100003","28/04/26 16:45","Otherdoc -","Dan","Test Clinic B","P3","Testpatient","Eve","ZZZ0003","03/03/92","100.00","15","Thc 20+CBD 1 20%+1% 10","10000880","Take as directed","","TS"
 EOF
 
 # Synthetic layout B: compact 9-column export, 4-digit years
@@ -91,23 +91,39 @@ if [ -z "$product_id" ]; then
 fi
 echo "  ok: White Sherb product seeded (id $product_id)"
 
-# Import layout A (default product = White Sherb, for the odd med-name row)
+# Import layout A with explicit units mode (quantities are already jars)
 resp=$(curl -fsS -X POST "http://127.0.0.1:$PORT/s29.php" \
     -F "action=upload_s29" \
     -F "pharmacy=Synthetic Test Pharmacy" \
     -F "default_product_id=$product_id" \
+    -F "qty_mode=units" \
     -F "csv_file=@$TMP/full_layout.csv")
 echo "$resp" | grep -q "Imported 3 records" || { echo "FAIL: layout A import (response did not confirm 3 records)" >&2; fail=1; }
-echo "  ok: layout A imported"
+echo "$resp" | grep -q "divided by" && { echo "FAIL: units mode must not convert quantities" >&2; fail=1; }
+echo "  ok: layout A imported (units mode, no conversion)"
 
-# Import layout B
+# Import layout B in auto mode: 10 and 30 are all multiples of 10 g,
+# so auto-detect must treat them as grams (1 and 3 units)
 resp=$(curl -fsS -X POST "http://127.0.0.1:$PORT/s29.php" \
     -F "action=upload_s29" \
     -F "pharmacy=Synthetic Takapuna" \
     -F "default_product_id=$product_id" \
     -F "csv_file=@$TMP/compact_layout.csv")
 echo "$resp" | grep -q "Imported 2 records" || { echo "FAIL: layout B import" >&2; fail=1; }
-echo "  ok: layout B imported"
+echo "$resp" | grep -q "detected as grams" || { echo "FAIL: auto-detect did not flag gram quantities" >&2; fail=1; }
+echo "  ok: layout B imported (auto-detected grams)"
+
+# Gram conversion: quantities divided by 10, raw gram values preserved
+[ "$(q "SELECT COUNT(*) FROM s29_supplies WHERE raw_quantity IS NOT NULL;")" = "2" ] \
+    && echo "  ok: raw gram values preserved" || { echo "FAIL: raw_quantity not stored" >&2; fail=1; }
+[ "$(q "SELECT CAST(SUM(quantity) AS INTEGER) FROM s29_supplies WHERE pharmacy='Synthetic Takapuna';")" = "4" ] \
+    && echo "  ok: gram quantities converted to units (10g+30g -> 4 units)" || { echo "FAIL: gram conversion" >&2; fail=1; }
+
+# Name cleaning: trailing "- " export artifacts stripped from names
+[ "$(q "SELECT COUNT(*) FROM s29_supplies WHERE prescriber='Otherdoc, Dan';")" = "2" ] \
+    && echo "  ok: trailing dash stripped from prescriber name" || { echo "FAIL: name cleaning" >&2; fail=1; }
+[ "$(q "SELECT COUNT(*) FROM s29_supplies WHERE prescriber LIKE '% -' OR patient LIKE '% -';")" = "0" ] \
+    && echo "  ok: no name artifacts remain" || { echo "FAIL: name artifacts remain" >&2; fail=1; }
 
 # Import layout C (.xlsx clinic export)
 resp=$(curl -fsS -X POST "http://127.0.0.1:$PORT/s29.php" \
@@ -146,9 +162,9 @@ echo "  ok: layout C (.xlsx) imported"
 nhi_hits=$(q "SELECT COUNT(*) FROM s29_supplies WHERE prescriber LIKE '%ZZZ%' OR patient LIKE '%ZZZ%' OR med_name LIKE '%ZZZ%' OR pharmacy LIKE '%ZZZ%' OR prescriber_facility LIKE '%ZZZ%' OR med_plu LIKE '%ZZZ%';")
 [ "$nhi_hits" = "0" ] && echo "  ok: junk/confidential columns discarded" || { echo "FAIL: NHI-like values leaked into stored fields" >&2; fail=1; }
 
-# Quantities aggregate correctly (45 + 40 + 12)
-[ "$(q "SELECT CAST(SUM(quantity) AS INTEGER) FROM s29_supplies;")" = "97" ] \
-    && echo "  ok: quantities stored (total 97)" || { echo "FAIL: quantity total" >&2; fail=1; }
+# Quantities aggregate correctly (45 units + 4 converted units + 12 units)
+[ "$(q "SELECT CAST(SUM(quantity) AS INTEGER) FROM s29_supplies;")" = "61" ] \
+    && echo "  ok: quantities stored (total 61)" || { echo "FAIL: quantity total" >&2; fail=1; }
 
 # Delete import batch 1 — its 3 rows cascade away, other batches untouched
 import1=$(q "SELECT MIN(id) FROM s29_imports;")

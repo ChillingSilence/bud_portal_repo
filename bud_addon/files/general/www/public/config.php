@@ -166,12 +166,22 @@ try {
                 med_name TEXT,
                 med_plu TEXT,
                 quantity DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                raw_quantity DECIMAL(10, 2),
                 product_id INTEGER,
                 pharmacy TEXT,
                 FOREIGN KEY (import_id) REFERENCES s29_imports(id) ON DELETE CASCADE,
                 FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
             )
         ");
+    }
+
+    // v0.16.1: raw gram values kept alongside converted S29 quantities
+    $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='s29_supplies'");
+    $s29_schema = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($s29_schema && strpos($s29_schema, 'raw_quantity') === false) {
+        $pdo->exec("ALTER TABLE s29_supplies ADD COLUMN raw_quantity DECIMAL(10, 2)");
     }
 
     // Seed the first verified product on empty installs/upgrades

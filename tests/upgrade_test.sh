@@ -10,7 +10,7 @@
 #   - in-progress transfers are left un-invoiced,
 #   - the migration is idempotent (safe to run on every page load).
 #
-# Requires: php-cli with pdo_sqlite.
+# Requires: php-cli with pdo_sqlite, sqlite3.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -143,6 +143,11 @@ $s29 = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND na
 if ($s29 != 3) { echo "FAIL: products/S29 tables not created by migration\n"; $fail = 1; }
 else { echo "  ok: products + S29 tables created\n"; }
 
+// v0.16.1: freshly created s29_supplies includes raw_quantity
+$rq = $pdo->query("SELECT COUNT(*) FROM pragma_table_info('s29_supplies') WHERE name='raw_quantity'")->fetchColumn();
+if ($rq != 1) { echo "FAIL: raw_quantity missing from created s29_supplies\n"; $fail = 1; }
+else { echo "  ok: raw_quantity present (create path)\n"; }
+
 $seed = $pdo->query("SELECT COUNT(*) FROM products WHERE name='White Sherb'")->fetchColumn();
 if ($seed != 1) { echo "FAIL: White Sherb product not seeded\n"; $fail = 1; }
 else { echo "  ok: White Sherb product seeded\n"; }
@@ -159,9 +164,47 @@ else { echo "  ok: scheduling audit entries purged\n"; }
 exit($fail);
 PHP
 
-if php "$TMP/assert.php"; then
-    echo "In-place upgrade test OK"
-else
+if ! php "$TMP/assert.php"; then
     echo "In-place upgrade test FAILED" >&2
     exit 1
 fi
+
+# ── ALTER path: a 0.16.0 database already has the S29 tables but not
+#    raw_quantity — the migration must add the column, not recreate ──
+export BUD_DB_PATH="$TMP/v0160.db"
+cat > "$TMP/setup2.php" <<'PHP'
+<?php
+$pdo = new PDO('sqlite:' . getenv('BUD_DB_PATH'));
+$pdo->exec("CREATE TABLE products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, inn_generic TEXT,
+    dose_form TEXT, pack_size TEXT, strength TEXT, is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+$pdo->exec("INSERT INTO products (name) VALUES ('White Sherb')");
+$pdo->exec("CREATE TABLE s29_imports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT, pharmacy TEXT NOT NULL,
+    default_product_id INTEGER, row_count INTEGER DEFAULT 0,
+    total_quantity DECIMAL(10,2) DEFAULT 0,
+    imported_at DATETIME DEFAULT CURRENT_TIMESTAMP)");
+$pdo->exec("CREATE TABLE s29_supplies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, import_id INTEGER NOT NULL,
+    supplied_at DATETIME, supply_month TEXT, prescriber TEXT,
+    prescriber_facility TEXT, patient TEXT, med_name TEXT, med_plu TEXT,
+    quantity DECIMAL(10,2) NOT NULL DEFAULT 0, product_id INTEGER, pharmacy TEXT)");
+$pdo->exec("INSERT INTO s29_imports (pharmacy) VALUES ('Existing Pharmacy')");
+$pdo->exec("INSERT INTO s29_supplies (import_id, quantity, med_name) VALUES (1, 3, 'Existing Row')");
+echo "setup2 ok\n";
+PHP
+php "$TMP/setup2.php"
+php -r 'include $argv[1];' "$PUBLIC/config.php"
+
+rq=$(sqlite3 "$BUD_DB_PATH" "SELECT COUNT(*) FROM pragma_table_info('s29_supplies') WHERE name='raw_quantity';")
+rows=$(sqlite3 "$BUD_DB_PATH" "SELECT COUNT(*) FROM s29_supplies;")
+if [ "$rq" = "1" ] && [ "$rows" = "1" ]; then
+    echo "  ok: raw_quantity added to existing 0.16.0 database, data intact (alter path)"
+else
+    echo "FAIL: alter path — raw_quantity=$rq rows=$rows" >&2
+    echo "In-place upgrade test FAILED" >&2
+    exit 1
+fi
+
+echo "In-place upgrade test OK"

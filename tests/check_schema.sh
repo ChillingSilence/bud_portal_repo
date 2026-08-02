@@ -42,7 +42,7 @@ done
 
 # Columns added over time must also exist on FRESH installs (schema.sql must
 # always match what in-place migrations produce — see tests/upgrade_test.sh)
-for col in "chain_of_custody:invoiced_at" "chain_of_custody:cancelled_at" "chain_of_custody:receiver_id" "chain_of_custody:received_by"; do
+for col in "chain_of_custody:invoiced_at" "chain_of_custody:cancelled_at" "chain_of_custody:receiver_id" "chain_of_custody:received_by" "s29_supplies:raw_quantity"; do
     table="${col%%:*}"; column="${col##*:}"
     found=$(sqlite3 "$TMP/schema_test.db" \
         "SELECT COUNT(*) FROM pragma_table_info('$table') WHERE name='$column';")
