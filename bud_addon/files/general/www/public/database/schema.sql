@@ -64,7 +64,49 @@ CREATE TABLE IF NOT EXISTS chain_of_custody (
   FOREIGN KEY (receiver_id) REFERENCES verified_receivers(id) ON DELETE SET NULL
 );
 
--- 12. Destruction Register (controlled substance destruction records for MCA)
+-- 12. Products (verified medicinal cannabis products — the S29 constants)
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  inn_generic TEXT,
+  dose_form TEXT,
+  pack_size TEXT,
+  strength TEXT,
+  is_active BOOLEAN DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 13. S29 Imports (one row per uploaded monthly pharmacy file)
+CREATE TABLE IF NOT EXISTS s29_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  filename TEXT,
+  pharmacy TEXT NOT NULL,
+  default_product_id INTEGER,
+  row_count INTEGER DEFAULT 0,
+  total_quantity DECIMAL(10, 2) DEFAULT 0,
+  imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (default_product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+
+-- 14. S29 Supplies (parsed dispensing rows — Section 29 record fields only)
+CREATE TABLE IF NOT EXISTS s29_supplies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  import_id INTEGER NOT NULL,
+  supplied_at DATETIME,
+  supply_month TEXT,
+  prescriber TEXT,
+  prescriber_facility TEXT,
+  patient TEXT,
+  med_name TEXT,
+  med_plu TEXT,
+  quantity DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  product_id INTEGER,
+  pharmacy TEXT,
+  FOREIGN KEY (import_id) REFERENCES s29_imports(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+);
+
+-- 15. Destruction Register (controlled substance destruction records for MCA)
 CREATE TABLE IF NOT EXISTS destruction_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   stock_item_id INTEGER,

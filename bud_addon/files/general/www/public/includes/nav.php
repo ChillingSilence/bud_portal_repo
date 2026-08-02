@@ -22,6 +22,7 @@ function isActive($page, $current)
             <li><a href="stock.php" class="<?= isActive('stock.php', $current_page) ?>">Stock</a></li>
             <li><a href="custody.php" class="<?= isActive('custody.php', $current_page) ?>">Chain of Custody</a></li>
             <li><a href="destruction.php" class="<?= isActive('destruction.php', $current_page) ?>">Destruction</a></li>
+            <li><a href="s29.php" class="<?= isActive('s29.php', $current_page) ?>">S29</a></li>
             <li><a href=" reports.php" class="<?= isActive('reports.php', $current_page) ?>">Reports</a></li>
             <li><a href="analytics.php" class="<?= isActive('analytics.php', $current_page) ?>">Analytics</a></li>
             <li>

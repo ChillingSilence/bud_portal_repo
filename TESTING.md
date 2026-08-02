@@ -57,6 +57,7 @@ success.
 | `tests/upgrade_test.sh` | config.php auto-migrations upgrade an existing pre-0.14 database with live data: columns added, historical completed transfers backfilled as invoiced, migration idempotent — the **in-place upgrade** path | php-cli (pdo_sqlite) |
 | `tests/smoke_test.sh` | Every page renders without PHP errors against a fresh DB; `BUD_DB_PATH` is honoured; the ephemeral-storage guard fires under the Supervisor | php-cli (pdo_sqlite), curl |
 | `tests/audit_undo_test.sh` | `Audit::undo()` (Admin "Undo Last Action") reverses INSERT/UPDATE/DELETE, logs each reversal, and refuses unsafe undos | php-cli (pdo_sqlite) |
+| `tests/s29_import_test.sh` | The Section 29 importer (synthetic data only — real S29 files are confidential and must never enter this repo): all three pharmacy layouts incl. native .xlsx, day-first dates + Excel serial dates, product matching, name splitting, Institution override, junk-column exclusion, batch delete | php-cli (pdo_sqlite, zip, simplexml), curl, sqlite3 |
 | `tests/docker_persistence_test.sh` | Full container: DB created on the `/data` volume only, and data survives container destruction/recreation | docker, curl |
 
 Run everything that doesn't need Docker:

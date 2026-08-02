@@ -40,7 +40,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
-          extensions: pdo_sqlite
+          extensions: pdo_sqlite, zip, simplexml
       - run: bash tests/smoke_test.sh
 
   upgrade:
@@ -64,6 +64,17 @@ jobs:
           php-version: "8.3"
           extensions: pdo_sqlite
       - run: bash tests/audit_undo_test.sh
+
+  s29-import:
+    name: S29 import test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite, zip, simplexml
+      - run: bash tests/s29_import_test.sh
 
   addon-lint:
     name: Home Assistant add-on lint

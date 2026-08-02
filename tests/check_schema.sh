@@ -13,7 +13,7 @@ echo "== Schema validation =="
 
 sqlite3 "$TMP/schema_test.db" < "$SCHEMA"
 
-expected="suppliers stock_items audit_log destruction_log \
+expected="suppliers stock_items audit_log destruction_log products s29_imports s29_supplies \
 chain_of_custody materials_out_reports product_bundles bundle_items verified_receivers"
 
 fail=0

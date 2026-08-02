@@ -45,6 +45,7 @@ class Audit
             'product_bundles',
             'bundle_items',
             'verified_receivers',
+            'products',
         ];
 
         $stmt = $pdo->prepare("SELECT * FROM audit_log WHERE id = ?");

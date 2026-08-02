@@ -1,4 +1,10 @@
 # Changelog
+## [0.16.0] - 2026-08-02
+### Added
+- **Section 29 Register**: New "S29" page to upload the monthly pharmacy reporting files — CSV and Excel (.xlsx, parsed natively; legacy .xls should be saved as .xlsx/CSV first). The importer auto-detects all three known export layouts (including Excel serial dates and combined "Dr X (Clinic)" name splitting), keeps only the Section 29 record fields (practitioner, patient, product, quantity, date, place supplied to) and discards everything else — NHI numbers, DOBs, addresses and the uploaded file itself are never stored. Includes register browsing with month/place/product filters and patient/prescriber search, monthly summary totals, full-format CSV export, and per-import batch deletion for fixing mistakes.
+- **Products**: New products table holding each verified product's Section 29 constants (INN/generic name, trade name, dose form, pack size, strength), managed from the S29 page and pre-seeded with White Sherb. Import rows auto-match products by med name with a selectable fallback.
+- **Data-file guard**: `.gitignore` and CI now block any CSV/Excel file from ever being committed to the repository (S29 files contain confidential patient data).
+
 ## [0.15.0] - 2026-08-02
 ### Added
 - **Cancel Transfer**: In Progress Chain of Custody transfers can now be cancelled (with a confirmation modal). Cancelling restores the stock that was deducted at initiation — bundle components included — and keeps the record permanently with a "Cancelled" badge and timestamp. Cancelled transfers are excluded from reports and analytics.

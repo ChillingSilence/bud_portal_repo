@@ -124,6 +124,64 @@ try {
         ");
     }
 
+    // v0.16: Products + Section 29 reporting tables
+    $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='s29_supplies'");
+    $has_s29 = $stmt->fetchColumn();
+    $stmt = null;
+
+    if (!$has_s29) {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                inn_generic TEXT,
+                dose_form TEXT,
+                pack_size TEXT,
+                strength TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS s29_imports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT,
+                pharmacy TEXT NOT NULL,
+                default_product_id INTEGER,
+                row_count INTEGER DEFAULT 0,
+                total_quantity DECIMAL(10, 2) DEFAULT 0,
+                imported_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (default_product_id) REFERENCES products(id) ON DELETE SET NULL
+            )
+        ");
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS s29_supplies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                import_id INTEGER NOT NULL,
+                supplied_at DATETIME,
+                supply_month TEXT,
+                prescriber TEXT,
+                prescriber_facility TEXT,
+                patient TEXT,
+                med_name TEXT,
+                med_plu TEXT,
+                quantity DECIMAL(10, 2) NOT NULL DEFAULT 0,
+                product_id INTEGER,
+                pharmacy TEXT,
+                FOREIGN KEY (import_id) REFERENCES s29_imports(id) ON DELETE CASCADE,
+                FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
+            )
+        ");
+    }
+
+    // Seed the first verified product on empty installs/upgrades
+    $stmt = $pdo->query("SELECT COUNT(*) FROM products");
+    $product_count = $stmt->fetchColumn();
+    $stmt = null;
+    if ($product_count == 0) {
+        $pdo->exec("INSERT INTO products (name) VALUES ('White Sherb')");
+    }
+
     // v0.15: Scheduling feature removed — drop its tables and audit entries
     $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='cleaning_schedules'");
     $has_cleaning = $stmt->fetchColumn();

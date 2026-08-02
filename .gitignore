@@ -3,5 +3,11 @@
 bud_addon/files/general/www/public/database/*.db
 bud_addon/files/general/www/public/database/*.sqlite*
 
+# Spreadsheet/data files must NEVER be committed — Section 29 reporting
+# files contain confidential patient data. CI enforces this too.
+*.csv
+*.xlsx
+*.xls
+
 # Claude Code workspace
 .claude/
