@@ -1,12 +1,12 @@
 # BUD Portal
 
 ## Overview
-The **BUD Portal** is a comprehensive Business Utility Dashboard for stock management, chain of custody tracking, and scheduling.
+The **BUD Portal** is a comprehensive Business Utility Dashboard for stock management, chain of custody tracking, and destruction records.
 
 **Features:**
 -   **Inventory Control**: Track stock levels and suppliers.
--   **Chain of Custody**: Log controlled substance shipments with digital signatures.
--   **Scheduling**: Manage cleaning rosters and recurring tasks.
+-   **Chain of Custody**: Log controlled substance shipments with digital signatures; cancel mistaken transfers with automatic stock restoration.
+-   **Destruction Register**: Permanent, MCA-ready record of destroyed stock with witness signatures and CSV export.
 -   **Analytics**: Materials-out by month with product and buyer breakdown charts.
 -   **Admin Dashboard**: Undo actions, backup/restore database, and export the full database as JSON for debugging.
 

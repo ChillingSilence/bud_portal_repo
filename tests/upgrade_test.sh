@@ -54,6 +54,25 @@ $pdo->exec("CREATE TABLE time_logs (
     notes TEXT
 )");
 $pdo->exec("INSERT INTO time_logs (staff_name, action) VALUES ('Sam', 'IN')");
+
+// Pre-0.15 installs also had the (since removed) Scheduling feature
+$pdo->exec("CREATE TABLE cleaning_schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    frequency TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT 1
+)");
+$pdo->exec("CREATE TABLE cleaning_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL,
+    staff_name TEXT NOT NULL,
+    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+)");
+$pdo->exec("INSERT INTO cleaning_schedules (name, frequency) VALUES ('Floors', 'Weekly')");
+$pdo->exec("INSERT INTO cleaning_logs (schedule_id, staff_name) VALUES (1, 'Sam')");
 $pdo->exec("CREATE TABLE audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     table_name TEXT NOT NULL,
@@ -65,6 +84,8 @@ $pdo->exec("CREATE TABLE audit_log (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 )");
 $pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('time_logs', 1, 'INSERT')");
+$pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('cleaning_schedules', 1, 'INSERT')");
+$pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('cleaning_logs', 1, 'INSERT')");
 $pdo->exec("INSERT INTO audit_log (table_name, record_id, action) VALUES ('stock_items', 1, 'UPDATE')");
 echo "setup ok\n";
 PHP
@@ -106,6 +127,25 @@ else { echo "  ok: time_logs audit entries purged\n"; }
 $other_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name='stock_items'")->fetchColumn();
 if ($other_audit != 1) { echo "FAIL: unrelated audit entries were lost\n"; $fail = 1; }
 else { echo "  ok: unrelated audit entries preserved\n"; }
+
+// v0.15: cancelled_at column added to chain_of_custody
+$cc = $pdo->query("SELECT COUNT(*) FROM pragma_table_info('chain_of_custody') WHERE name='cancelled_at'")->fetchColumn();
+if ($cc != 1) { echo "FAIL: cancelled_at column not added by migration\n"; $fail = 1; }
+else { echo "  ok: cancelled_at column added\n"; }
+
+// v0.15: destruction_log table created on upgrade
+$dl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='destruction_log'")->fetchColumn();
+if ($dl != 1) { echo "FAIL: destruction_log table not created by migration\n"; $fail = 1; }
+else { echo "  ok: destruction_log table created\n"; }
+
+// v0.15: scheduling tables dropped and their audit entries purged
+$cl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('cleaning_schedules','cleaning_logs')")->fetchColumn();
+if ($cl != 0) { echo "FAIL: scheduling tables were not dropped by migration\n"; $fail = 1; }
+else { echo "  ok: scheduling tables dropped\n"; }
+
+$cl_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name IN ('cleaning_schedules','cleaning_logs')")->fetchColumn();
+if ($cl_audit != 0) { echo "FAIL: scheduling audit entries were not purged\n"; $fail = 1; }
+else { echo "  ok: scheduling audit entries purged\n"; }
 
 exit($fail);
 PHP

@@ -45,26 +45,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 5. Cleaning Schedules
-CREATE TABLE IF NOT EXISTS cleaning_schedules (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  description TEXT,
-  frequency TEXT CHECK(frequency IN ('Daily', 'Weekly', 'Fortnightly', 'Monthly')) NOT NULL,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  is_active BOOLEAN DEFAULT 1
-);
-
--- 6. Cleaning Logs
-CREATE TABLE IF NOT EXISTS cleaning_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  schedule_id INTEGER NOT NULL,
-  staff_name TEXT NOT NULL,
-  completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  notes TEXT,
-  FOREIGN KEY (schedule_id) REFERENCES cleaning_schedules(id)
-);
-
 -- 7. Chain of Custody
 CREATE TABLE IF NOT EXISTS chain_of_custody (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,7 +60,26 @@ CREATE TABLE IF NOT EXISTS chain_of_custody (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   completed_at DATETIME,
   invoiced_at DATETIME,
+  cancelled_at DATETIME,
   FOREIGN KEY (receiver_id) REFERENCES verified_receivers(id) ON DELETE SET NULL
+);
+
+-- 12. Destruction Register (controlled substance destruction records for MCA)
+CREATE TABLE IF NOT EXISTS destruction_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  stock_item_id INTEGER,
+  item_name TEXT NOT NULL,
+  batch TEXT,
+  quantity DECIMAL(10, 2) NOT NULL,
+  unit TEXT,
+  reason TEXT NOT NULL,
+  method TEXT NOT NULL,
+  destroyed_by TEXT NOT NULL,
+  witness TEXT,
+  witness_signature TEXT,
+  notes TEXT,
+  destroyed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (stock_item_id) REFERENCES stock_items(id) ON DELETE SET NULL
 );
 
 -- 8. Reports

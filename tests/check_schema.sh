@@ -13,7 +13,7 @@ echo "== Schema validation =="
 
 sqlite3 "$TMP/schema_test.db" < "$SCHEMA"
 
-expected="suppliers stock_items audit_log cleaning_schedules cleaning_logs \
+expected="suppliers stock_items audit_log destruction_log \
 chain_of_custody materials_out_reports product_bundles bundle_items verified_receivers"
 
 fail=0
@@ -29,7 +29,7 @@ for table in $expected; do
 done
 
 # Removed features must not come back on fresh installs
-for table in time_logs; do
+for table in time_logs cleaning_schedules cleaning_logs; do
     found=$(sqlite3 "$TMP/schema_test.db" \
         "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='$table';")
     if [ "$found" != "0" ]; then
@@ -42,7 +42,7 @@ done
 
 # Columns added over time must also exist on FRESH installs (schema.sql must
 # always match what in-place migrations produce — see tests/upgrade_test.sh)
-for col in "chain_of_custody:invoiced_at" "chain_of_custody:receiver_id" "chain_of_custody:received_by"; do
+for col in "chain_of_custody:invoiced_at" "chain_of_custody:cancelled_at" "chain_of_custody:receiver_id" "chain_of_custody:received_by"; do
     table="${col%%:*}"; column="${col##*:}"
     found=$(sqlite3 "$TMP/schema_test.db" \
         "SELECT COUNT(*) FROM pragma_table_info('$table') WHERE name='$column';")

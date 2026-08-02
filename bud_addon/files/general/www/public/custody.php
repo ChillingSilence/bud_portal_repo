@@ -129,6 +129,87 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // -------------------------------------------------------
+    // CANCEL: Reverse an In Progress transfer (restores stock)
+    // -------------------------------------------------------
+    elseif ($action === 'cancel_coc') {
+        try {
+            $coc_id = intval($_POST['coc_id']);
+
+            $coc_stmt = $pdo->prepare("SELECT * FROM chain_of_custody WHERE id = ? AND status = 'In Progress'");
+            $coc_stmt->execute([$coc_id]);
+            $coc = $coc_stmt->fetch();
+            $coc_stmt = null;
+
+            if (!$coc) {
+                $message = "Transfer #$coc_id not found or is no longer In Progress.";
+            } else {
+                // Restore the stock that was deducted at initiation
+                $items = json_decode($coc['coc_items'], true) ?: [];
+                foreach ($items as $item) {
+                    $item_id = $item['item_id'];
+                    $qty = floatval($item['qty'] ?? 0);
+                    if ($qty <= 0) {
+                        continue;
+                    }
+
+                    if (strpos($item_id, 'bundle_') === 0) {
+                        $bundle_id = str_replace('bundle_', '', $item_id);
+
+                        $b_stmt = $pdo->prepare("SELECT name FROM product_bundles WHERE id = ?");
+                        $b_stmt->execute([$bundle_id]);
+                        $b_name = $b_stmt->fetchColumn();
+
+                        $bundle_components = $pdo->prepare("SELECT stock_item_id, quantity FROM bundle_items WHERE bundle_id = ?");
+                        $bundle_components->execute([$bundle_id]);
+                        $components = $bundle_components->fetchAll();
+
+                        foreach ($components as $component) {
+                            $component_id = $component['stock_item_id'];
+                            $restore_qty = $component['quantity'] * $qty;
+
+                            $old_stock_stmt = $pdo->prepare("SELECT * FROM stock_items WHERE id = ?");
+                            $old_stock_stmt->execute([$component_id]);
+                            $old_stock = $old_stock_stmt->fetch();
+
+                            if ($old_stock) {
+                                $pdo->prepare("UPDATE stock_items SET quantity = quantity + ? WHERE id = ?")->execute([$restore_qty, $component_id]);
+
+                                $new_stock_stmt = $pdo->prepare("SELECT * FROM stock_items WHERE id = ?");
+                                $new_stock_stmt->execute([$component_id]);
+                                $new_stock = $new_stock_stmt->fetch();
+                                $new_stock['adjustment_notes'] = "Restored via Bundle: $b_name (Cancelled COC #$coc_id)";
+                                Audit::log($pdo, 'stock_items', $component_id, 'UPDATE', $old_stock, $new_stock);
+                            }
+                        }
+                    } else {
+                        $old_stock_stmt = $pdo->prepare("SELECT * FROM stock_items WHERE id = ?");
+                        $old_stock_stmt->execute([$item_id]);
+                        $old_stock = $old_stock_stmt->fetch();
+
+                        if ($old_stock) {
+                            $pdo->prepare("UPDATE stock_items SET quantity = quantity + ? WHERE id = ?")->execute([$qty, $item_id]);
+
+                            $new_stock_stmt = $pdo->prepare("SELECT * FROM stock_items WHERE id = ?");
+                            $new_stock_stmt->execute([$item_id]);
+                            $new_stock = $new_stock_stmt->fetch();
+                            $new_stock['adjustment_notes'] = "Restored via Cancelled COC #$coc_id";
+                            Audit::log($pdo, 'stock_items', $item_id, 'UPDATE', $old_stock, $new_stock);
+                        }
+                    }
+                }
+
+                $pdo->prepare("UPDATE chain_of_custody
+                    SET status = 'Cancelled', cancelled_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND status = 'In Progress'")->execute([$coc_id]);
+                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', ['status' => 'In Progress'], ['status' => 'Cancelled']);
+                $message = "Transfer #$coc_id cancelled. Deducted stock has been restored.";
+            }
+        } catch (Exception $e) {
+            $message = "Error cancelling transfer: " . $e->getMessage();
+        }
+    }
+
+    // -------------------------------------------------------
     // PHASE 3: Mark as Invoiced (completed transfers only)
     // -------------------------------------------------------
     elseif ($action === 'mark_invoiced') {
@@ -222,6 +303,11 @@ foreach ($receivers as $r) {
         .status-invoice {
             background: rgba(59, 130, 246, 0.2);
             color: #3b82f6;
+        }
+
+        .status-cancelled {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
         }
     </style>
 </head>
@@ -358,6 +444,8 @@ foreach ($receivers as $r) {
                                         <?php if (empty($row['invoiced_at'])): ?>
                                             <span class="status-badge status-invoice">🧾 Needs Invoice</span>
                                         <?php endif; ?>
+                                    <?php elseif ($row['status'] === 'Cancelled'): ?>
+                                        <span class="status-badge status-cancelled">✕ Cancelled</span>
                                     <?php else: ?>
                                         <span class="status-badge status-progress">⏳ In Progress</span>
                                     <?php endif; ?>
@@ -375,6 +463,12 @@ foreach ($receivers as $r) {
                                         <button onclick='printPackingSlip(<?= json_encode($row) ?>)' class="btn"
                                             style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">🖨
                                             Slip</button>
+                                        <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn"
+                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid #ef4444; color: #ef4444;">✕
+                                            Cancel</button>
+                                    <?php elseif ($row['status'] === 'Cancelled'): ?>
+                                        <button onclick='viewCoc(<?= json_encode($row) ?>)' class="btn"
+                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">View</button>
                                     <?php else: ?>
                                         <button onclick='viewCoc(<?= json_encode($row) ?>)' class="btn"
                                             style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">View</button>
@@ -437,6 +531,34 @@ foreach ($receivers as $r) {
                 <div style="margin-top: 2rem;">
                     <button type="submit" class="btn" style="background: #10b981;"
                         onclick="return saveCompleteSignature()">Mark as Received ✓</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Cancel Confirmation Modal (In Progress only) -->
+    <div id="cancelModal"
+        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
+        <div class="glass-panel" style="margin: 15vh auto; max-width: 500px; position: relative; border-color: rgba(239, 68, 68, 0.4);">
+            <button onclick="document.getElementById('cancelModal').style.display='none'"
+                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: var(--text-color); border: 1px solid var(--card-border);">✕
+                Close</button>
+            <h3>✕ Cancel Transfer</h3>
+            <div id="cancel-summary"
+                style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
+            </div>
+            <p style="font-size: 0.9rem;">The stock deducted when this transfer was initiated will be
+                <strong>returned to inventory</strong>. The record is kept and marked as Cancelled — it will not
+                appear in reports. This cannot be reversed from this page.</p>
+            <form method="POST">
+                <input type="hidden" name="action" value="cancel_coc">
+                <input type="hidden" name="coc_id" id="cancel_coc_id">
+                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
+                    <button type="button" class="btn"
+                        style="background: transparent; border: 1px solid var(--card-border); color: var(--text-color);"
+                        onclick="document.getElementById('cancelModal').style.display='none'">Keep Transfer</button>
+                    <button type="submit" class="btn" style="background: #ef4444;">Yes — Cancel &amp; Restore
+                        Stock</button>
                 </div>
             </form>
         </div>
@@ -548,6 +670,18 @@ foreach ($receivers as $r) {
             document.getElementById('completeModal').style.display = 'block';
         }
 
+        // ── Cancel Modal ─────────────────────────────────────────────────────
+        function openCancel(data) {
+            document.getElementById('cancel_coc_id').value = data.id;
+            const items = JSON.parse(data.coc_items);
+            let itemList = items.map(i => `${resolveItemName(i.item_id)} × ${i.qty}`).join('<br>');
+            document.getElementById('cancel-summary').innerHTML =
+                `<strong>Doc #${data.id}</strong> &nbsp;|&nbsp; ${data.form_date}<br>
+                 <strong>To:</strong> ${data.destination}<br>
+                 <div style="margin-top:0.5rem;">${itemList}</div>`;
+            document.getElementById('cancelModal').style.display = 'block';
+        }
+
         // ── Invoice Modal ────────────────────────────────────────────────────
         function openInvoice(data) {
             document.getElementById('invoice_coc_id').value = data.id;
@@ -583,6 +717,13 @@ foreach ($receivers as $r) {
                 ? `<div style="margin-top:0.5rem;"><strong>Invoiced:</strong> ${data.invoiced_at}</div>`
                 : '';
 
+            const cancelledSection = data.status === 'Cancelled'
+                ? `<div style="margin-top:1rem; padding: 0.75rem; border: 1px solid #ef4444; border-radius: 0.5rem; color: #ef4444;">
+                       <strong>✕ CANCELLED</strong> ${data.cancelled_at ? '&mdash; ' + data.cancelled_at : ''}<br>
+                       <small>Deducted stock was restored to inventory when this transfer was cancelled.</small>
+                   </div>`
+                : '';
+
             const sigSection = data.signature_image
                 ? `<div style="margin-top:2rem;"><p><strong>Receiver Signature:</strong></p>
                    <img src="${data.signature_image}" style="border:1px solid #ccc; max-width:100%; height:auto;"></div>`
@@ -602,6 +743,7 @@ foreach ($receivers as $r) {
                     <div><strong>To:</strong> ${data.destination}</div>
                 </div>
                 ${itemHtml}
+                ${cancelledSection}
                 ${receivedSection}
                 ${invoiceSection}
                 ${sigSection}

@@ -73,8 +73,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'chain_of_custody',
         'verified_receivers',
         'suppliers',
-        'cleaning_schedules',
-        'cleaning_logs',
+        'destruction_log',
     ];
 
     $export = ['exported_at' => date('Y-m-d H:i:s T'), 'tables' => []];

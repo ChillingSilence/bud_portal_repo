@@ -36,11 +36,11 @@ class Audit
     {
         // Table names come from stored log rows, not user input, but they are
         // interpolated into SQL — allow only the application's own tables.
+        // destruction_log is deliberately absent: the destruction register is
+        // permanent and must never be reversible, even via admin undo.
         $allowed_tables = [
             'suppliers',
             'stock_items',
-            'cleaning_schedules',
-            'cleaning_logs',
             'chain_of_custody',
             'product_bundles',
             'bundle_items',
