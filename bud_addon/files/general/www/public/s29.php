@@ -471,6 +471,30 @@ $summary_stmt = $pdo->prepare("
 $summary_stmt->execute($params);
 $summary = $summary_stmt->fetchAll();
 
+// Top-10 rankings for the current filters. These aggregate over the FULL
+// filtered set (not the 1000-row register page), so a patient who ordered on
+// the 2nd, 10th and 24th shows as one row with 3 orders and the summed total.
+function topRanking($pdo, $group_col, $where_sql, $params)
+{
+    $not_empty = "$group_col IS NOT NULL AND $group_col <> ''";
+    $w = $where_sql ? "$where_sql AND $not_empty" : "WHERE $not_empty";
+    $stmt = $pdo->prepare("
+        SELECT $group_col AS who, COUNT(*) AS orders, SUM(s.quantity) AS total_qty,
+               MIN(s.supplied_at) AS first_order, MAX(s.supplied_at) AS last_order
+        FROM s29_supplies s
+        $w
+        GROUP BY $group_col
+        ORDER BY total_qty DESC
+        LIMIT 10
+    ");
+    $stmt->execute($params);
+    return $stmt->fetchAll();
+}
+
+$top_patients    = topRanking($pdo, 's.patient', $where_sql, $params);
+$top_prescribers = topRanking($pdo, 's.prescriber', $where_sql, $params);
+$top_places      = topRanking($pdo, 's.pharmacy', $where_sql, $params);
+
 $imports = $pdo->query("SELECT i.*, p.name AS product_name FROM s29_imports i
     LEFT JOIN products p ON p.id = i.default_product_id
     ORDER BY i.imported_at DESC LIMIT 50")->fetchAll();
@@ -515,6 +539,75 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
             <button onclick="togglePanel('productsPanel')" class="btn"
                 style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">💊
                 Products</button>
+            <button onclick="togglePanel('topPanel')" class="btn"
+                style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">🏆
+                Top Orders</button>
+        </div>
+
+        <!-- Top Orders (patients / prescribers / places, honours current filters) -->
+        <div id="topPanel" class="glass-panel" style="display: none; margin-bottom: 2rem;">
+            <h3>🏆 Top Orders<?= $filter_month ? ' — ' . h($filter_month) : ' — all months' ?></h3>
+            <p><small>Ranked by total quantity across the current filters. Every fill counts — separate orders by
+                    the same person are combined. Click a name to filter the records below.</small></p>
+
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+                <button type="button" id="tab-patients" onclick="topTab('patients')" class="btn"
+                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Patients</button>
+                <button type="button" id="tab-prescribers" onclick="topTab('prescribers')" class="btn"
+                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">Prescribers</button>
+                <button type="button" id="tab-places" onclick="topTab('places')" class="btn"
+                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">Places</button>
+            </div>
+
+            <?php
+            $top_tabs = [
+                'patients'    => ['rows' => $top_patients, 'label' => 'Patient', 'filter' => 'q'],
+                'prescribers' => ['rows' => $top_prescribers, 'label' => 'Prescriber', 'filter' => 'q'],
+                'places'      => ['rows' => $top_places, 'label' => 'Place Supplied To', 'filter' => 'place'],
+            ];
+            foreach ($top_tabs as $tab_key => $tab): ?>
+                <div id="top-<?= $tab_key ?>" style="<?= $tab_key === 'patients' ? '' : 'display: none;' ?>">
+                    <?php if (empty($tab['rows'])): ?>
+                        <p>No records for the current filters.</p>
+                    <?php else: ?>
+                        <div class="table-responsive">
+                            <table style="font-size: 0.9rem;">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th><?= $tab['label'] ?></th>
+                                        <th>Orders</th>
+                                        <th>Total Qty</th>
+                                        <th>First Order</th>
+                                        <th>Last Order</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach ($tab['rows'] as $rank => $t): ?>
+                                        <?php
+                                        $link_params = [
+                                            'month'   => $filter_month,
+                                            'place'   => $tab['filter'] === 'place' ? $t['who'] : $filter_place,
+                                            'product' => $filter_product ?: '',
+                                            'q'       => $tab['filter'] === 'q' ? $t['who'] : $filter_q,
+                                        ];
+                                        ?>
+                                        <tr>
+                                            <td><strong><?= $rank + 1 ?></strong></td>
+                                            <td><a href="s29.php?<?= h(http_build_query($link_params)) ?>"
+                                                    style="color: var(--primary-color);"><?= h($t['who']) ?></a></td>
+                                            <td><?= h($t['orders']) ?></td>
+                                            <td><strong><?= h($t['total_qty']) ?></strong></td>
+                                            <td style="white-space: nowrap;"><?= h($t['first_order'] ? substr($t['first_order'], 0, 10) : '?') ?></td>
+                                            <td style="white-space: nowrap;"><?= h($t['last_order'] ? substr($t['last_order'], 0, 10) : '?') ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
         </div>
 
         <!-- Upload -->
@@ -810,6 +903,22 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
         function togglePanel(id) {
             const el = document.getElementById(id);
             el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function topTab(name) {
+            ['patients', 'prescribers', 'places'].forEach(t => {
+                document.getElementById('top-' + t).style.display = t === name ? 'block' : 'none';
+                const btn = document.getElementById('tab-' + t);
+                if (t === name) {
+                    btn.style.background = 'var(--primary-color)';
+                    btn.style.color = '#fff';
+                    btn.style.border = 'none';
+                } else {
+                    btn.style.background = 'transparent';
+                    btn.style.border = '1px solid var(--primary-color)';
+                    btn.style.color = 'var(--primary-color)';
+                }
+            });
         }
 
         function toggleOtherPharmacy(value) {
