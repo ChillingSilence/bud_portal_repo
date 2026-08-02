@@ -46,6 +46,17 @@ function parseS29Date($str)
     return $ts !== false ? (new DateTime())->setTimestamp($ts) : null;
 }
 
+/**
+ * Clean pharmacy-export name artifacts: some systems append stray characters
+ * (e.g. a trailing " -" on prescriber names). Strips leading/trailing dashes,
+ * underscores and asterisks while preserving hyphens INSIDE names
+ * (Jones-Young stays Jones-Young).
+ */
+function cleanS29Name($name)
+{
+    return trim(preg_replace('/^[\s\-–—_*]+|[\s\-–—_*]+$/u', '', trim((string) $name)));
+}
+
 // ── Handle actions ────────────────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -137,17 +148,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // product selected on the form.
                 $products = $pdo->query("SELECT id, name FROM products WHERE is_active = 1")->fetchAll();
 
-                $pdo->exec("BEGIN TRANSACTION");
-                $ins_import = $pdo->prepare("INSERT INTO s29_imports (filename, pharmacy, default_product_id) VALUES (?, ?, ?)");
-                $ins_import->execute([basename($_FILES['csv_file']['name']), $pharmacy, $default_product_id]);
-                $import_id = $pdo->lastInsertId();
-
-                $ins_row = $pdo->prepare("INSERT INTO s29_supplies
-                    (import_id, supplied_at, supply_month, prescriber, prescriber_facility, patient, med_name, med_plu, quantity, product_id, pharmacy)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-                $count = 0;
-                $total_qty = 0;
+                // ── Pass 1: parse every row (no inserts yet — quantity unit
+                //    detection below needs to see the whole file first) ──
+                $parsed = [];
                 $bad_dates = 0;
                 $months = [];
 
@@ -169,24 +172,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $months[$dt->format('Y-m')] = true;
                     }
 
-                    $facility = $cell($row, $c_fac);
+                    $facility = cleanS29Name($cell($row, $c_fac));
                     if ($c_pre_full !== null) {
                         $prescriber = $cell($row, $c_pre_full);
                         // "Dr Jane Doe (Clinic Name)" — facility from the parentheses
                         if (preg_match('/^(.*?)\s*\(([^)]+)\)\s*$/', $prescriber, $pm)) {
                             $prescriber = trim($pm[1]);
                             if ($facility === '') {
-                                $facility = trim($pm[2]);
+                                $facility = cleanS29Name($pm[2]);
                             }
                         }
+                        $prescriber = cleanS29Name($prescriber);
                     } else {
-                        $prescriber = trim($cell($row, $c_pre_last) . ', ' . $cell($row, $c_pre_first), ', ');
+                        $prescriber = trim(cleanS29Name($cell($row, $c_pre_last)) . ', ' . cleanS29Name($cell($row, $c_pre_first)), ', ');
                     }
 
                     if ($c_pat_full !== null) {
-                        $patient = $cell($row, $c_pat_full);
+                        $patient = cleanS29Name($cell($row, $c_pat_full));
                     } else {
-                        $patient = trim($cell($row, $c_pat_last) . ', ' . $cell($row, $c_pat_first), ', ');
+                        $patient = trim(cleanS29Name($cell($row, $c_pat_last)) . ', ' . cleanS29Name($cell($row, $c_pat_first)), ', ');
                     }
 
                     $product_id = $default_product_id;
@@ -201,18 +205,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // overrides the pharmacy selected for the file
                     $row_place = $cell($row, $c_inst) ?: $pharmacy;
 
+                    $parsed[] = [
+                        'supplied_at' => $dt ? $dt->format('Y-m-d H:i:s') : null,
+                        'month'       => $dt ? $dt->format('Y-m') : null,
+                        'prescriber'  => $prescriber,
+                        'facility'    => $facility,
+                        'patient'     => $patient,
+                        'med_name'    => $med_name,
+                        'med_plu'     => $cell($row, $c_plu),
+                        'qty'         => $qty,
+                        'product_id'  => $product_id,
+                        'place'       => $row_place,
+                    ];
+                }
+
+                // ── Quantity unit handling: some pharmacies report grams,
+                //    not units/jars (e.g. 20 means 2 × 10 g jars) ──
+                $qty_mode = $_POST['qty_mode'] ?? 'auto';
+                $grams_per_unit = floatval($_POST['grams_per_unit'] ?? 10);
+                if ($grams_per_unit <= 0) {
+                    $grams_per_unit = 10;
+                }
+
+                $treat_as_grams = false;
+                if ($qty_mode === 'grams') {
+                    $treat_as_grams = true;
+                } elseif ($qty_mode === 'auto') {
+                    // Grams only if EVERY quantity is at least one unit's worth
+                    // AND an exact multiple of it — a single odd value (e.g. 15)
+                    // means the file is already in units.
+                    $treat_as_grams = count($parsed) > 0;
+                    foreach ($parsed as $p) {
+                        if ($p['qty'] < $grams_per_unit || fmod($p['qty'], $grams_per_unit) > 0.0001) {
+                            $treat_as_grams = false;
+                            break;
+                        }
+                    }
+                }
+
+                // ── Pass 2: insert ──
+                $pdo->exec("BEGIN TRANSACTION");
+                $ins_import = $pdo->prepare("INSERT INTO s29_imports (filename, pharmacy, default_product_id) VALUES (?, ?, ?)");
+                $ins_import->execute([$orig_name, $pharmacy, $default_product_id]);
+                $import_id = $pdo->lastInsertId();
+
+                $ins_row = $pdo->prepare("INSERT INTO s29_supplies
+                    (import_id, supplied_at, supply_month, prescriber, prescriber_facility, patient, med_name, med_plu, quantity, raw_quantity, product_id, pharmacy)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                $count = 0;
+                $total_qty = 0;
+                foreach ($parsed as $p) {
+                    $qty = $p['qty'];
+                    $raw = null;
+                    if ($treat_as_grams) {
+                        $raw = $qty;
+                        $qty = $qty / $grams_per_unit;
+                    }
                     $ins_row->execute([
                         $import_id,
-                        $dt ? $dt->format('Y-m-d H:i:s') : null,
-                        $dt ? $dt->format('Y-m') : null,
-                        $prescriber,
-                        $facility,
-                        $patient,
-                        $med_name,
-                        $cell($row, $c_plu),
+                        $p['supplied_at'],
+                        $p['month'],
+                        $p['prescriber'],
+                        $p['facility'],
+                        $p['patient'],
+                        $p['med_name'],
+                        $p['med_plu'],
                         $qty,
-                        $product_id,
-                        $row_place,
+                        $raw,
+                        $p['product_id'],
+                        $p['place'],
                     ]);
                     $count++;
                     $total_qty += $qty;
@@ -231,6 +293,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $month_list = implode(', ', array_keys($months));
                 $message = "Imported $count records ($total_qty units) covering $month_list — Import #$import_id.";
+                if ($treat_as_grams) {
+                    $verb = $qty_mode === 'grams' ? 'treated as grams as requested' : 'detected as grams';
+                    $message .= " Quantities were $verb and divided by $grams_per_unit g/unit (e.g. " . ($grams_per_unit * 2) . " g → 2 units); the original gram values are kept alongside each record.";
+                }
                 if ($bad_dates > 0) {
                     $message .= " ⚠️ $bad_dates row(s) had unreadable dates and were saved without one.";
                 }
@@ -489,8 +555,24 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                         </select>
                     </div>
                 </div>
+                <div class="grid">
+                    <div>
+                        <label>Quantities in File</label>
+                        <select name="qty_mode">
+                            <option value="auto">Auto-detect (grams when every value is a multiple of grams/unit)</option>
+                            <option value="units">Units / jars — import as-is</option>
+                            <option value="grams">Grams — divide by grams per unit</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label>Grams per Unit</label>
+                        <input type="number" name="grams_per_unit" value="10" min="0.01" step="0.01">
+                    </div>
+                </div>
                 <p style="font-size: 0.8rem; color: var(--text-muted, #aaa);">Rows whose "Med name" contains a known
-                    product name are matched automatically; per-row "Institution" values override the pharmacy above.</p>
+                    product name are matched automatically; per-row "Institution" values override the pharmacy above.
+                    Some pharmacies report gram totals instead of unit counts (e.g. 20 = 2 × 10 g jars) — when
+                    converted, the original gram value is kept with each record.</p>
                 <button type="submit" class="btn">Upload &amp; Import</button>
             </form>
         </div>
@@ -713,7 +795,7 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                                     <td><?= h($s['prescriber']) ?><?= $s['prescriber_facility'] ? '<br><small style="color: var(--text-muted, #aaa);">' . h($s['prescriber_facility']) . '</small>' : '' ?></td>
                                     <td><?= h($s['patient']) ?></td>
                                     <td><?= h($s['product_name'] ?? $s['med_name']) ?></td>
-                                    <td><?= h($s['quantity']) ?></td>
+                                    <td><?= h($s['quantity']) ?><?= $s['raw_quantity'] !== null && $s['raw_quantity'] !== '' ? ' <small style="color: var(--text-muted, #aaa);">(' . h($s['raw_quantity']) . ' g)</small>' : '' ?></td>
                                     <td><?= h($s['pharmacy']) ?></td>
                                 </tr>
                             <?php endforeach; ?>

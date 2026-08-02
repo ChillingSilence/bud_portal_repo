@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS s29_supplies (
   med_name TEXT,
   med_plu TEXT,
   quantity DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  raw_quantity DECIMAL(10, 2),
   product_id INTEGER,
   pharmacy TEXT,
   FOREIGN KEY (import_id) REFERENCES s29_imports(id) ON DELETE CASCADE,

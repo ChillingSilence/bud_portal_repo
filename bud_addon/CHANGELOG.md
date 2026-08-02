@@ -1,4 +1,9 @@
 # Changelog
+## [0.16.1] - 2026-08-02
+### Fixed
+- **S29 quantity units**: Some pharmacies report gram totals rather than unit counts (e.g. 20 = 2 × 10 g jars). The upload form now has a "Quantities in File" mode — auto-detect (default, treats the file as grams only when every value is a multiple of the grams-per-unit), units as-is, or grams — with a configurable grams-per-unit (default 10). Converted records keep the original gram value, shown alongside the unit count in the register.
+- **S29 name artifacts**: Stray leading/trailing characters on names (e.g. the trailing "-" some exports append to prescriber names) are now stripped on import, without touching hyphens inside names like Jones-Young.
+
 ## [0.16.0] - 2026-08-02
 ### Added
 - **Section 29 Register**: New "S29" page to upload the monthly pharmacy reporting files — CSV and Excel (.xlsx, parsed natively; legacy .xls should be saved as .xlsx/CSV first). The importer auto-detects all three known export layouts (including Excel serial dates and combined "Dr X (Clinic)" name splitting), keeps only the Section 29 record fields (practitioner, patient, product, quantity, date, place supplied to) and discards everything else — NHI numbers, DOBs, addresses and the uploaded file itself are never stored. Includes register browsing with month/place/product filters and patient/prescriber search, monthly summary totals, full-format CSV export, and per-import batch deletion for fixing mistakes.
