@@ -74,6 +74,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'verified_receivers',
         'suppliers',
         'destruction_log',
+        'products',
+        's29_imports',
+        's29_supplies',
     ];
 
     $export = ['exported_at' => date('Y-m-d H:i:s T'), 'tables' => []];

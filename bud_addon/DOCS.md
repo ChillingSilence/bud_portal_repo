@@ -31,6 +31,13 @@ temporary container storage.
 - **Destruction** — permanent register of destroyed stock (expired, damaged)
   with reason, method, staff, witness and signature — MCA-ready with CSV
   export. Register entries can never be edited or deleted.
+- **Section 29** — upload the monthly pharmacy S29 files (CSV or Excel);
+  only the Section 29 record fields (practitioner, patient, product,
+  quantity, date, place supplied to) are kept and the uploaded file is
+  discarded. Browse,
+  filter and search the register, see monthly summaries, and export CSV.
+  Products (INN/generic name, trade name, dose form, pack size, strength)
+  are managed on the same page.
 - **Reports** — controlled-substance Materials In/Out and MCA (Ministry of
   Health) report with CSV export.
 - **Analytics** — materials-out volumes by month with product and buyer

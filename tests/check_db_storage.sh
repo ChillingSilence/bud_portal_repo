@@ -61,6 +61,15 @@ else
     ok "config.yaml leaves /data to the Supervisor's persistent mount"
 fi
 
+# 6. No spreadsheet/data files may ever be committed — Section 29 reporting
+#    files contain confidential patient data
+tracked=$(git ls-files -- '*.csv' '*.xlsx' '*.xls' 2>/dev/null)
+if [ -n "$tracked" ]; then
+    err "spreadsheet/data file(s) committed to the repository (S29 files are confidential):"$'\n'"$tracked"
+else
+    ok "no spreadsheet/data files committed"
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "Database storage checks FAILED" >&2
     exit 1

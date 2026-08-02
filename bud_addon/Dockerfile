@@ -10,6 +10,8 @@ RUN apk -U upgrade && apk add --no-cache \
     php83-pdo \
     php83-pdo_sqlite \
     php83-session \
+    php83-simplexml \
+    php83-zip \
     sqlite \
     && ln -s /usr/sbin/php-fpm83 /usr/sbin/php-fpm \
     && addgroup -S php \
@@ -21,7 +23,11 @@ RUN apk -U upgrade && apk add --no-cache \
     } > /etc/php83/conf.d/20-pdo.ini \
     && { \
         echo "extension=session.so"; \
-    } > /etc/php83/conf.d/21-session.ini
+    } > /etc/php83/conf.d/21-session.ini \
+    && { \
+        echo "extension=simplexml.so"; \
+        echo "extension=zip.so"; \
+    } > /etc/php83/conf.d/22-s29-import.ini
 
 COPY files/general files/php83 /
 RUN chown -R php:nginx /www && \

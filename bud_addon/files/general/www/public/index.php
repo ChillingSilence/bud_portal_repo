@@ -77,6 +77,12 @@ try {
             </div>
 
             <div class="glass-panel">
+                <h3>📄 Section 29</h3>
+                <p>Upload monthly pharmacy S29 files and browse the supply register.</p>
+                <a href="s29.php" class="btn">S29 Register</a>
+            </div>
+
+            <div class="glass-panel">
                 <h3>📈 Analytics</h3>
                 <p>Materials-out by month, with product and buyer breakdowns.</p>
                 <a href="analytics.php" class="btn">View Analytics</a>

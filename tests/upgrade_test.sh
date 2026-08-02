@@ -138,6 +138,15 @@ $dl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND nam
 if ($dl != 1) { echo "FAIL: destruction_log table not created by migration\n"; $fail = 1; }
 else { echo "  ok: destruction_log table created\n"; }
 
+// v0.16: products + S29 tables created on upgrade, first product seeded
+$s29 = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('products','s29_imports','s29_supplies')")->fetchColumn();
+if ($s29 != 3) { echo "FAIL: products/S29 tables not created by migration\n"; $fail = 1; }
+else { echo "  ok: products + S29 tables created\n"; }
+
+$seed = $pdo->query("SELECT COUNT(*) FROM products WHERE name='White Sherb'")->fetchColumn();
+if ($seed != 1) { echo "FAIL: White Sherb product not seeded\n"; $fail = 1; }
+else { echo "  ok: White Sherb product seeded\n"; }
+
 // v0.15: scheduling tables dropped and their audit entries purged
 $cl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('cleaning_schedules','cleaning_logs')")->fetchColumn();
 if ($cl != 0) { echo "FAIL: scheduling tables were not dropped by migration\n"; $fail = 1; }
