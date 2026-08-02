@@ -1,7 +1,7 @@
 # BUD Portal
 
 BUD (Business Utility Dashboard) provides stock management, chain of custody
-tracking, scheduling and regulatory reporting.
+tracking, destruction records and regulatory reporting.
 
 ## Data storage & persistence
 
@@ -25,9 +25,12 @@ temporary container storage.
 
 - **Dashboard** — stock overview and low-stock warnings.
 - **Suppliers / Stock / Bundles** — inventory management.
-- **Chain of Custody** — two-phase transfer tracking with digital signatures
-  and packing slips.
-- **Scheduling** — cleaning rosters and recurring tasks.
+- **Chain of Custody** — two-phase transfer tracking with digital signatures,
+  packing slips, invoicing flags, and cancellation of mistaken transfers
+  (cancelling restores the deducted stock and keeps the record).
+- **Destruction** — permanent register of destroyed stock (expired, damaged)
+  with reason, method, staff, witness and signature — MCA-ready with CSV
+  export. Register entries can never be edited or deleted.
 - **Reports** — controlled-substance Materials In/Out and MCA (Ministry of
   Health) report with CSV export.
 - **Analytics** — materials-out volumes by month with product and buyer

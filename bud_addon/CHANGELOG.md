@@ -1,4 +1,12 @@
 # Changelog
+## [0.15.0] - 2026-08-02
+### Added
+- **Cancel Transfer**: In Progress Chain of Custody transfers can now be cancelled (with a confirmation modal). Cancelling restores the stock that was deducted at initiation — bundle components included — and keeps the record permanently with a "Cancelled" badge and timestamp. Cancelled transfers are excluded from reports and analytics.
+- **Destruction Register**: New "Destruction" page for recording destroyed stock (expired, damaged, contaminated). Records quantity, batch, reason, method, staff, witness name and witness signature; deducts stock with a full audit trail. The register is permanent (cannot be edited, deleted or undone), filterable by month, and exports to CSV for the Medicinal Cannabis Agency.
+
+### Removed
+- **Scheduling**: The cleaning schedules / task scheduling feature has been removed entirely — pages, navigation, dashboard tile, and the `cleaning_schedules` / `cleaning_logs` database tables (dropped automatically on upgrade, including their audit log entries).
+
 ## [0.14.4] - 2026-08-02
 ### Changed
 - **Sidebar icon**: Changed the Home Assistant panel icon from `mdi:cannabis` to `mdi:truck-delivery` to avoid clashing with another add-on using the same icon.

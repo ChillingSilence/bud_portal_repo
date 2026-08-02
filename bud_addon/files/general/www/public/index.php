@@ -59,9 +59,9 @@ try {
             </div>
 
             <div class="glass-panel">
-                <h3>🗓️ Scheduling</h3>
-                <p>View or complete scheduled tasks.</p>
-                <a href="scheduling.php" class="btn">Scheduling</a>
+                <h3>🔥 Destruction</h3>
+                <p>Record destroyed stock and view the destruction register.</p>
+                <a href="destruction.php" class="btn">Destruction Register</a>
             </div>
 
             <div class="glass-panel">

@@ -64,17 +64,6 @@ try {
     // Close the cursor to prevent lock
     $tables_check = null;
 
-    // Check for v0.12 schema (Once-off frequency support)
-    $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='cleaning_schedules'");
-    $schema = $stmt->fetchColumn();
-    // Close the cursor to prevent 'database table is locked' error during migration
-    $stmt = null;
-    
-    // If table exists but schema doesn't have 'Once-off' in the Check constraint
-    if ($schema && strpos($schema, 'Once-off') === false) {
-        require_once 'migrate_v0.12.php';
-    }
-
     // Check for v0.14 schema (invoicing flag on Chain of Custody)
     $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='chain_of_custody'");
     $coc_schema = $stmt->fetchColumn();
@@ -98,6 +87,52 @@ try {
     if ($has_time_logs) {
         $pdo->exec("DROP TABLE time_logs");
         $pdo->exec("DELETE FROM audit_log WHERE table_name = 'time_logs'");
+    }
+
+    // v0.15: Cancelled transfers (cancelled_at on Chain of Custody)
+    $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='chain_of_custody'");
+    $coc_schema = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($coc_schema && strpos($coc_schema, 'cancelled_at') === false) {
+        $pdo->exec("ALTER TABLE chain_of_custody ADD COLUMN cancelled_at DATETIME");
+    }
+
+    // v0.15: Destruction Register table
+    $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='destruction_log'");
+    $has_destruction = $stmt->fetchColumn();
+    $stmt = null;
+
+    if (!$has_destruction) {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS destruction_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                stock_item_id INTEGER,
+                item_name TEXT NOT NULL,
+                batch TEXT,
+                quantity DECIMAL(10, 2) NOT NULL,
+                unit TEXT,
+                reason TEXT NOT NULL,
+                method TEXT NOT NULL,
+                destroyed_by TEXT NOT NULL,
+                witness TEXT,
+                witness_signature TEXT,
+                notes TEXT,
+                destroyed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (stock_item_id) REFERENCES stock_items(id) ON DELETE SET NULL
+            )
+        ");
+    }
+
+    // v0.15: Scheduling feature removed — drop its tables and audit entries
+    $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='cleaning_schedules'");
+    $has_cleaning = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($has_cleaning) {
+        $pdo->exec("DROP TABLE IF EXISTS cleaning_logs");
+        $pdo->exec("DROP TABLE cleaning_schedules");
+        $pdo->exec("DELETE FROM audit_log WHERE table_name IN ('cleaning_schedules', 'cleaning_logs')");
     }
 } catch (PDOException $e) {
     die("Database connection failed: " . $e->getMessage());
