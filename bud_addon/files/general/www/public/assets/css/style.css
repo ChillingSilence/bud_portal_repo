@@ -14,6 +14,14 @@
     --nav-bg: rgba(255, 255, 255, 0.85);
     --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
     --glass-blur: blur(12px);
+    /* Modals: translucent panels turn muddy gray over the dark overlay in
+       light mode, so modal panels and their summary boxes get solid colors */
+    --modal-bg: #ffffff;
+    --summary-bg: rgba(0, 0, 0, 0.06);
+    --warn-text: #b45309;
+    /* Amber 700 — readable on white */
+    --outline-muted-border: #cbd5e1;
+    /* Slate 300 — the translucent-white --card-border vanishes on white */
 }
 
 [data-theme="dark"] {
@@ -33,6 +41,13 @@
     --nav-bg: rgba(17, 24, 39, 0.85);
     /* Gray 900 */
     --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+    --modal-bg: #1f2937;
+    /* Gray 800, solid */
+    --summary-bg: rgba(0, 0, 0, 0.25);
+    --warn-text: #f59e0b;
+    /* Amber 500 — readable on dark */
+    --outline-muted-border: rgba(75, 85, 99, 0.8);
+    /* Gray 600 */
 }
 
 * {
@@ -199,6 +214,57 @@ nav a {
 
 .btn:hover {
     background-color: var(--primary-hover);
+}
+
+/* Outline buttons — .btn forces white text with !important, which makes
+   transparent-background buttons invisible on the light theme, so these
+   must also use !important to win */
+.btn.btn-outline-danger {
+    background: transparent !important;
+    border: 1px solid #ef4444;
+    color: #ef4444 !important;
+}
+
+.btn.btn-outline-danger:hover {
+    background: rgba(239, 68, 68, 0.1) !important;
+}
+
+.btn.btn-outline-primary {
+    background: transparent !important;
+    border: 1px solid var(--primary-color);
+    color: var(--primary-color) !important;
+}
+
+.btn.btn-outline-primary:hover {
+    background: rgba(59, 130, 246, 0.1) !important;
+}
+
+.btn.btn-outline-muted {
+    background: transparent !important;
+    border: 1px solid var(--outline-muted-border);
+    color: var(--text-color) !important;
+}
+
+/* Modal panels: solid background so light mode doesn't turn muddy gray
+   under the dark page overlay */
+.glass-panel.modal-panel {
+    background: var(--modal-bg);
+}
+
+.modal-summary {
+    background: var(--summary-bg);
+    padding: 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.9rem;
+}
+
+.modal-warning {
+    border: 1px solid var(--warn-text);
+    border-radius: 0.5rem;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--warn-text);
 }
 
 /* Mobile Toggle Default (Hidden on Desktop) */

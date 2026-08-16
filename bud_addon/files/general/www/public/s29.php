@@ -533,14 +533,11 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
 
         <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
             <button onclick="togglePanel('uploadPanel')" class="btn">⬆ Upload S29 File</button>
-            <button onclick="togglePanel('importsPanel')" class="btn"
-                style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">🗂
+            <button onclick="togglePanel('importsPanel')" class="btn btn-outline-primary">🗂
                 Imports</button>
-            <button onclick="togglePanel('productsPanel')" class="btn"
-                style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">💊
+            <button onclick="togglePanel('productsPanel')" class="btn btn-outline-primary">💊
                 Products</button>
-            <button onclick="togglePanel('topPanel')" class="btn"
-                style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">🏆
+            <button onclick="togglePanel('topPanel')" class="btn btn-outline-primary">🏆
                 Top Orders</button>
         </div>
 
@@ -553,10 +550,10 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
             <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
                 <button type="button" id="tab-patients" onclick="topTab('patients')" class="btn"
                     style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Patients</button>
-                <button type="button" id="tab-prescribers" onclick="topTab('prescribers')" class="btn"
-                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">Prescribers</button>
-                <button type="button" id="tab-places" onclick="topTab('places')" class="btn"
-                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">Places</button>
+                <button type="button" id="tab-prescribers" onclick="topTab('prescribers')" class="btn btn-outline-primary"
+                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Prescribers</button>
+                <button type="button" id="tab-places" onclick="topTab('places')" class="btn btn-outline-primary"
+                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Places</button>
             </div>
 
             <?php
@@ -790,8 +787,7 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                 </div>
                 <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
                     <button type="submit" class="btn">Save Product</button>
-                    <button type="button" class="btn" onclick="resetProductForm()"
-                        style="background: transparent; border: 1px solid var(--card-border); color: var(--text-color);">Clear</button>
+                    <button type="button" class="btn btn-outline-muted" onclick="resetProductForm()">Clear</button>
                 </div>
             </form>
         </div>
@@ -827,8 +823,7 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                 </div>
                 <button type="submit" class="btn">Filter</button>
                 <a href="s29.php?action=export_csv&month=<?= urlencode($filter_month) ?>&place=<?= urlencode($filter_place) ?>&product=<?= $filter_product ?>&q=<?= urlencode($filter_q) ?>"
-                    class="btn"
-                    style="background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color) !important;">⬇
+                    class="btn btn-outline-primary">⬇
                     Export CSV</a>
             </form>
         </div>
@@ -908,16 +903,9 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
         function topTab(name) {
             ['patients', 'prescribers', 'places'].forEach(t => {
                 document.getElementById('top-' + t).style.display = t === name ? 'block' : 'none';
-                const btn = document.getElementById('tab-' + t);
-                if (t === name) {
-                    btn.style.background = 'var(--primary-color)';
-                    btn.style.color = '#fff';
-                    btn.style.border = 'none';
-                } else {
-                    btn.style.background = 'transparent';
-                    btn.style.border = '1px solid var(--primary-color)';
-                    btn.style.color = 'var(--primary-color)';
-                }
+                // Class toggle, not inline styles — .btn forces white text with
+                // !important, which inline colors can't override in light mode
+                document.getElementById('tab-' + t).classList.toggle('btn-outline-primary', t !== name);
             });
         }
 

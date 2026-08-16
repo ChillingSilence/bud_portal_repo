@@ -244,11 +244,11 @@ $stock_options = $pdo->query("SELECT id, name, sku, quantity, unit, is_controlle
                     </div>
                     <button type="submit" class="btn" style="font-size: 0.85rem;">Filter</button>
                     <?php if ($filter_month): ?>
-                        <a href="destruction.php" class="btn"
-                            style="font-size: 0.85rem; background: transparent; border: 1px solid var(--card-border); color: var(--text-color);">All</a>
+                        <a href="destruction.php" class="btn btn-outline-muted"
+                            style="font-size: 0.85rem;">All</a>
                     <?php endif; ?>
-                    <button type="button" onclick="exportDestructionCsv()" class="btn"
-                        style="font-size: 0.85rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color) !important;">⬇
+                    <button type="button" onclick="exportDestructionCsv()" class="btn btn-outline-primary"
+                        style="font-size: 0.85rem;">⬇
                         Export CSV</button>
                 </form>
             </div>
