@@ -82,6 +82,22 @@ Audit::undo($pdo, lastLogId($pdo));
 $back = $pdo->query("SELECT * FROM stock_items WHERE id = $item")->fetch();
 check($back && $back['name'] === 'Widget', "undo DELETE re-inserts the record with its original id");
 
+// ── Undo a CoC completion: custody.php records old values since v0.18, so
+//    the Admin "Undo" can revert a completion back to In Progress ─────────────
+$pdo->exec("INSERT INTO chain_of_custody (form_date, destination, transported_by, coc_items, status)
+    VALUES ('2026-08-15', 'Undo Test Pharmacy', 'Tester', '[]', 'In Progress')");
+$cid = $pdo->lastInsertId();
+$old_coc = ['received_by' => null, 'signature_image' => null, 'status' => 'In Progress', 'completed_at' => null];
+$pdo->exec("UPDATE chain_of_custody SET status='Completed', received_by='Test Receiver',
+    signature_image='data:image/png;base64,TESTSIG', completed_at=CURRENT_TIMESTAMP WHERE id = $cid");
+Audit::log($pdo, 'chain_of_custody', $cid, 'UPDATE', $old_coc,
+    ['received_by' => 'Test Receiver', 'signature_image' => 'data:image/png;base64,TESTSIG', 'status' => 'Completed']);
+Audit::undo($pdo, lastLogId($pdo));
+
+$coc = $pdo->query("SELECT status, received_by, signature_image, completed_at FROM chain_of_custody WHERE id = $cid")->fetch();
+check($coc['status'] === 'In Progress' && $coc['received_by'] === null && $coc['signature_image'] === null,
+    "undo completion reverts to In Progress and clears receiver + signature");
+
 // ── Refusals: bad table, missing old_values, missing record ───────────────────
 Audit::log($pdo, 'audit_log', 1, 'UPDATE', ['x' => 1], ['x' => 2]);
 try {

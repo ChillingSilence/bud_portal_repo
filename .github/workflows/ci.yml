@@ -64,6 +64,7 @@ jobs:
           php-version: "8.3"
           extensions: pdo_sqlite
       - run: bash tests/audit_undo_test.sh
+      - run: bash tests/custody_test.sh
 
   s29-import:
     name: S29 import test

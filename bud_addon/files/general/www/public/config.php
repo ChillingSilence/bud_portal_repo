@@ -184,6 +184,15 @@ try {
         $pdo->exec("ALTER TABLE s29_supplies ADD COLUMN raw_quantity DECIMAL(10, 2)");
     }
 
+    // v0.18: cancellation reason kept on cancelled Chain of Custody records
+    $stmt = $pdo->query("SELECT sql FROM sqlite_master WHERE name='chain_of_custody'");
+    $coc_schema18 = $stmt->fetchColumn();
+    $stmt = null;
+
+    if ($coc_schema18 && strpos($coc_schema18, 'cancel_reason') === false) {
+        $pdo->exec("ALTER TABLE chain_of_custody ADD COLUMN cancel_reason TEXT");
+    }
+
     // Seed the first verified product on empty installs/upgrades
     $stmt = $pdo->query("SELECT COUNT(*) FROM products");
     $product_count = $stmt->fetchColumn();

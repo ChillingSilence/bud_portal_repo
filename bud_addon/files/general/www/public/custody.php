@@ -116,12 +116,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$coc_id || !$received_by || !$signature) {
                 $message = "Error: Please provide the receiver name and signature.";
             } else {
-                $stmt = $pdo->prepare("UPDATE chain_of_custody
-                    SET status = 'Completed', received_by = ?, signature_image = ?, completed_at = CURRENT_TIMESTAMP
-                    WHERE id = ? AND status = 'In Progress'");
-                $stmt->execute([$received_by, $signature, $coc_id]);
-                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', null, ['received_by' => $received_by, 'status' => 'Completed']);
-                $message = "Transfer marked as received and completed.";
+                $old_stmt = $pdo->prepare("SELECT received_by, signature_image, status, completed_at
+                    FROM chain_of_custody WHERE id = ? AND status = 'In Progress'");
+                $old_stmt->execute([$coc_id]);
+                $old_coc = $old_stmt->fetch();
+                $old_stmt = null;
+
+                if (!$old_coc) {
+                    $message = "Transfer #$coc_id not found or is no longer In Progress.";
+                } else {
+                    $stmt = $pdo->prepare("UPDATE chain_of_custody
+                        SET status = 'Completed', received_by = ?, signature_image = ?, completed_at = CURRENT_TIMESTAMP
+                        WHERE id = ? AND status = 'In Progress'");
+                    $stmt->execute([$received_by, $signature, $coc_id]);
+                    // Old values recorded so the Admin "Undo Last Action" can revert a completion
+                    Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', $old_coc, [
+                        'received_by' => $received_by,
+                        'signature_image' => $signature,
+                        'status' => 'Completed',
+                    ]);
+                    $message = "Transfer marked as received and completed.";
+                }
             }
         } catch (Exception $e) {
             $message = "Error: " . $e->getMessage();
@@ -129,19 +144,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // -------------------------------------------------------
-    // CANCEL: Reverse an In Progress transfer (restores stock)
+    // CANCEL: Reverse a transfer (restores stock). In Progress transfers
+    // can always be cancelled; Completed ones only until they are invoiced
+    // (for duplicates / mistakes — a reason is required).
     // -------------------------------------------------------
     elseif ($action === 'cancel_coc') {
         try {
             $coc_id = intval($_POST['coc_id']);
+            $cancel_reason = trim($_POST['cancel_reason'] ?? '');
 
-            $coc_stmt = $pdo->prepare("SELECT * FROM chain_of_custody WHERE id = ? AND status = 'In Progress'");
+            $coc_stmt = $pdo->prepare("SELECT * FROM chain_of_custody
+                WHERE id = ? AND (status = 'In Progress' OR (status = 'Completed' AND invoiced_at IS NULL))");
             $coc_stmt->execute([$coc_id]);
             $coc = $coc_stmt->fetch();
             $coc_stmt = null;
 
             if (!$coc) {
-                $message = "Transfer #$coc_id not found or is no longer In Progress.";
+                $message = "Transfer #$coc_id not found, already cancelled, or already invoiced.";
+            } elseif ($coc['status'] === 'Completed' && $cancel_reason === '') {
+                $message = "Error: Please give a reason for cancelling a completed transfer.";
             } else {
                 // Restore the stock that was deducted at initiation
                 $items = json_decode($coc['coc_items'], true) ?: [];
@@ -199,9 +220,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $pdo->prepare("UPDATE chain_of_custody
-                    SET status = 'Cancelled', cancelled_at = CURRENT_TIMESTAMP
-                    WHERE id = ? AND status = 'In Progress'")->execute([$coc_id]);
-                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', ['status' => 'In Progress'], ['status' => 'Cancelled']);
+                    SET status = 'Cancelled', cancelled_at = CURRENT_TIMESTAMP, cancel_reason = ?
+                    WHERE id = ? AND status = ?")->execute([$cancel_reason !== '' ? $cancel_reason : null, $coc_id, $coc['status']]);
+                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE',
+                    ['status' => $coc['status'], 'cancel_reason' => null],
+                    ['status' => 'Cancelled', 'cancel_reason' => $cancel_reason]);
                 $message = "Transfer #$coc_id cancelled. Deducted stock has been restored.";
             }
         } catch (Exception $e) {
@@ -273,6 +296,11 @@ foreach ($receivers as $r) {
     <link rel="stylesheet" href="assets/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <style>
+        #complete-submit:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
         #signature-pad,
         #sig-pad-complete {
             border: 2px dashed var(--card-border);
@@ -476,6 +504,9 @@ foreach ($receivers as $r) {
                                             <button onclick='openInvoice(<?= json_encode($row) ?>)' class="btn"
                                                 style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #3b82f6;">🧾
                                                 Invoiced</button>
+                                            <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn"
+                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid #ef4444; color: #ef4444;">✕
+                                                Cancel</button>
                                         <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
@@ -529,14 +560,17 @@ foreach ($receivers as $r) {
                     style="font-size: 0.8rem; margin-top: 0.5rem;">Clear Signature</button>
 
                 <div style="margin-top: 2rem;">
-                    <button type="submit" class="btn" style="background: #10b981;"
+                    <button type="submit" class="btn" id="complete-submit" disabled
+                        style="background: #10b981;"
                         onclick="return saveCompleteSignature()">Mark as Received ✓</button>
+                    <p id="complete-submit-hint" style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
+                        Enter the receiver's name and have them sign above to enable saving.</p>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- Cancel Confirmation Modal (In Progress only) -->
+    <!-- Cancel Confirmation Modal (In Progress, or Completed until invoiced) -->
     <div id="cancelModal"
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
         <div class="glass-panel" style="margin: 15vh auto; max-width: 500px; position: relative; border-color: rgba(239, 68, 68, 0.4);">
@@ -547,12 +581,21 @@ foreach ($receivers as $r) {
             <div id="cancel-summary"
                 style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
             </div>
+            <div id="cancel-completed-warning"
+                style="display: none; border: 1px solid #f59e0b; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.9rem; color: #f59e0b;">
+                ⚠ This transfer has already been <strong>completed and signed</strong>. Only cancel it if it was a
+                duplicate or a mistake — the record and signature are kept permanently, marked as Cancelled.
+            </div>
             <p style="font-size: 0.9rem;">The stock deducted when this transfer was initiated will be
                 <strong>returned to inventory</strong>. The record is kept and marked as Cancelled — it will not
                 appear in reports. This cannot be reversed from this page.</p>
             <form method="POST">
                 <input type="hidden" name="action" value="cancel_coc">
                 <input type="hidden" name="coc_id" id="cancel_coc_id">
+                <label for="cancel_reason" style="margin-top: 0.5rem;">Reason<span id="cancel-reason-required"
+                        style="display: none;"> (required for completed transfers)</span></label>
+                <textarea name="cancel_reason" id="cancel_reason" rows="2"
+                    placeholder="e.g. Duplicate transfer opened by mistake"></textarea>
                 <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
                     <button type="button" class="btn"
                         style="background: transparent; border: 1px solid var(--card-border); color: var(--text-color);"
@@ -619,12 +662,15 @@ foreach ($receivers as $r) {
         const completeCanvas = document.getElementById('sig-pad-complete');
         const completeCtx = completeCanvas.getContext('2d');
         let completePainting = false;
+        let completeHasDrawn = false; // an untouched canvas still exports a PNG, so track real strokes
 
         function startComplete(e) { completePainting = true; drawComplete(e); }
         function endComplete() { completePainting = false; completeCtx.beginPath(); }
         function drawComplete(e) {
             if (!completePainting) return;
             e.preventDefault();
+            completeHasDrawn = true;
+            updateCompleteSubmit();
             const rect = completeCanvas.getBoundingClientRect();
             const scaleX = completeCanvas.width / rect.width;
             const scaleY = completeCanvas.height / rect.height;
@@ -647,11 +693,23 @@ foreach ($receivers as $r) {
 
         function clearCompleteSignature() {
             completeCtx.clearRect(0, 0, completeCanvas.width, completeCanvas.height);
+            completeHasDrawn = false;
+            updateCompleteSubmit();
         }
         function saveCompleteSignature() {
+            if (!completeHasDrawn) {
+                alert('Please have the receiver sign before saving.');
+                return false;
+            }
             document.getElementById('complete_signature_data').value = completeCanvas.toDataURL();
             return true;
         }
+        // Hard block: no completion without a receiver name AND a drawn signature
+        function updateCompleteSubmit() {
+            const name = document.getElementById('complete_received_by').value.trim();
+            document.getElementById('complete-submit').disabled = !(name && completeHasDrawn);
+        }
+        document.getElementById('complete_received_by').addEventListener('input', updateCompleteSubmit);
 
         // ── Complete Modal ───────────────────────────────────────────────────
         function openComplete(data) {
@@ -679,6 +737,15 @@ foreach ($receivers as $r) {
                 `<strong>Doc #${data.id}</strong> &nbsp;|&nbsp; ${data.form_date}<br>
                  <strong>To:</strong> ${data.destination}<br>
                  <div style="margin-top:0.5rem;">${itemList}</div>`;
+
+            // Completed transfers need a stronger warning and a mandatory reason
+            const isCompleted = data.status === 'Completed';
+            document.getElementById('cancel-completed-warning').style.display = isCompleted ? 'block' : 'none';
+            document.getElementById('cancel-reason-required').style.display = isCompleted ? 'inline' : 'none';
+            const reason = document.getElementById('cancel_reason');
+            reason.value = '';
+            reason.required = isCompleted;
+
             document.getElementById('cancelModal').style.display = 'block';
         }
 
@@ -720,6 +787,7 @@ foreach ($receivers as $r) {
             const cancelledSection = data.status === 'Cancelled'
                 ? `<div style="margin-top:1rem; padding: 0.75rem; border: 1px solid #ef4444; border-radius: 0.5rem; color: #ef4444;">
                        <strong>✕ CANCELLED</strong> ${data.cancelled_at ? '&mdash; ' + data.cancelled_at : ''}<br>
+                       ${data.cancel_reason ? '<small><strong>Reason:</strong> ' + data.cancel_reason + '</small><br>' : ''}
                        <small>Deducted stock was restored to inventory when this transfer was cancelled.</small>
                    </div>`
                 : '';

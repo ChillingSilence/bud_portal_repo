@@ -133,6 +133,11 @@ $cc = $pdo->query("SELECT COUNT(*) FROM pragma_table_info('chain_of_custody') WH
 if ($cc != 1) { echo "FAIL: cancelled_at column not added by migration\n"; $fail = 1; }
 else { echo "  ok: cancelled_at column added\n"; }
 
+// v0.18: cancel_reason column added to chain_of_custody
+$cr = $pdo->query("SELECT COUNT(*) FROM pragma_table_info('chain_of_custody') WHERE name='cancel_reason'")->fetchColumn();
+if ($cr != 1) { echo "FAIL: cancel_reason column not added by migration\n"; $fail = 1; }
+else { echo "  ok: cancel_reason column added\n"; }
+
 // v0.15: destruction_log table created on upgrade
 $dl = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='destruction_log'")->fetchColumn();
 if ($dl != 1) { echo "FAIL: destruction_log table not created by migration\n"; $fail = 1; }

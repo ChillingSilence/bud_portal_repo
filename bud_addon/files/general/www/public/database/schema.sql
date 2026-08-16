@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS chain_of_custody (
   completed_at DATETIME,
   invoiced_at DATETIME,
   cancelled_at DATETIME,
+  cancel_reason TEXT,
   FOREIGN KEY (receiver_id) REFERENCES verified_receivers(id) ON DELETE SET NULL
 );
 

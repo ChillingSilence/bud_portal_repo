@@ -50,7 +50,7 @@ for page in $PAGES; do
         fail=1
         continue
     fi
-    if echo "$body" | grep -qiE 'Fatal error|Parse error|Database connection failed|Refusing to start'; then
+    if grep -qiE 'Fatal error|Parse error|Database connection failed|Refusing to start' <<< "$body"; then
         echo "FAIL: $page rendered a PHP error" >&2
         fail=1
     else
@@ -71,7 +71,7 @@ fi
 # directory must be fatal — never a silent fallback to ephemeral storage.
 guard_out=$(BUD_DB_PATH=/nonexistent-bud-test/bud.db SUPERVISOR_TOKEN=smoke-test \
     php -r 'include $argv[1];' "$PUBLIC/config.php" 2>&1 || true)
-if echo "$guard_out" | grep -q "Refusing to start with ephemeral storage"; then
+if grep -q "Refusing to start with ephemeral storage" <<< "$guard_out"; then
     echo "  ok: ephemeral-storage guard triggers under the Supervisor"
 else
     echo "FAIL: ephemeral-storage guard did not trigger; got: $guard_out" >&2
