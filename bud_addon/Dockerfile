@@ -27,7 +27,11 @@ RUN apk -U upgrade && apk add --no-cache \
     && { \
         echo "extension=simplexml.so"; \
         echo "extension=zip.so"; \
-    } > /etc/php83/conf.d/22-s29-import.ini
+    } > /etc/php83/conf.d/22-s29-import.ini \
+    && { \
+        echo "upload_max_filesize = 64M"; \
+        echo "post_max_size = 64M"; \
+    } > /etc/php83/conf.d/23-uploads.ini
 
 COPY files/general files/php83 /
 RUN chown -R php:nginx /www && \

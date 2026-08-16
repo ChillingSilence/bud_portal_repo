@@ -1,4 +1,8 @@
 # Changelog
+## [0.18.1] - 2026-08-17
+### Fixed
+- **413 on database restore**: Uploading a database over ~1 MB on the Admin page failed with "413 Request Entity Too Large" — the add-on's internal nginx capped request bodies at its 1 MB default (ingress via port 8123 goes through the same nginx, so it failed there too). Raised nginx `client_max_body_size` and PHP's `upload_max_filesize`/`post_max_size` to 64 MB.
+
 ## [0.18.0] - 2026-08-15
 ### Added
 - **Cancel completed transfers**: Chain of Custody transfers that are Completed but not yet invoiced can now be cancelled (for duplicates and mistakes). A reason is required, deducted stock is restored, and the record — including the signature — is kept permanently, marked Cancelled with the reason shown in the View modal. Invoiced transfers still cannot be cancelled.
