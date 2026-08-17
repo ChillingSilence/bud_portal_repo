@@ -148,8 +148,8 @@ $receivers = $pdo->query("SELECT * FROM verified_receivers ORDER BY name ASC")->
                                         <?= h($r['notes']) ?>
                                     </td>
                                     <td style="white-space: nowrap;">
-                                        <button onclick="openEdit(<?= htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8') ?>)" class="btn
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">Edit</button>
+                                        <button onclick="openEdit(<?= htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-outline-primary"
+                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Edit</button>
                                         <form method="POST" style="display:inline;"
                                             onsubmit="return confirm('Delete this receiver?');">
                                             <input type="hidden" name="action" value="delete_receiver">

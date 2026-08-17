@@ -1,4 +1,9 @@
 # Changelog
+## [0.18.2] - 2026-08-17
+### Fixed
+- **Invisible outline buttons in light mode**: The global `.btn` style forces white text with `!important`, which blanked out every transparent "outline" button on the light theme — the Cancel buttons on the Chain of Custody page, the S29 Imports/Products/Top Orders toggles and tabs, the destruction register's "All" filter, and the Edit button on Verified Receivers (which also had a malformed class attribute). All outline buttons now use shared `btn-outline-*` classes that render correctly in both themes.
+- **Modal theming in light mode**: Custody modals (Complete / Cancel / Invoice) used translucent glass panels and dark summary boxes designed for the dark theme, turning muddy gray over the page overlay in light mode. Modal panels are now solid, and summary boxes, warning notes and close buttons adapt to the theme.
+
 ## [0.18.1] - 2026-08-17
 ### Fixed
 - **413 on database restore**: Uploading a database over ~1 MB on the Admin page failed with "413 Request Entity Too Large" — the add-on's internal nginx capped request bodies at its 1 MB default (ingress via port 8123 goes through the same nginx, so it failed there too). Raised nginx `client_max_body_size` and PHP's `upload_max_filesize`/`post_max_size` to 64 MB.

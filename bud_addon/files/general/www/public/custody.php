@@ -435,8 +435,7 @@ foreach ($receivers as $r) {
                         </div>
                     </div>
                 </div>
-                <button type="button" class="btn" onclick="addItemRow()"
-                    style="background: transparent; border: 1px solid var(--primary-color); color: var(--text-color);">+
+                <button type="button" class="btn btn-outline-primary" onclick="addItemRow()">+
                     Add Another Item</button>
 
                 <div style="margin-top: 2rem;">
@@ -488,11 +487,11 @@ foreach ($receivers as $r) {
                                     <?php if ($row['status'] === 'In Progress'): ?>
                                         <button onclick='openComplete(<?= json_encode($row) ?>)' class="btn"
                                             style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #10b981;">Complete</button>
-                                        <button onclick='printPackingSlip(<?= json_encode($row) ?>)' class="btn"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid var(--primary-color); color: var(--primary-color);">🖨
+                                        <button onclick='printPackingSlip(<?= json_encode($row) ?>)' class="btn btn-outline-primary"
+                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">🖨
                                             Slip</button>
-                                        <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid #ef4444; color: #ef4444;">✕
+                                        <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn btn-outline-danger"
+                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">✕
                                             Cancel</button>
                                     <?php elseif ($row['status'] === 'Cancelled'): ?>
                                         <button onclick='viewCoc(<?= json_encode($row) ?>)' class="btn"
@@ -504,8 +503,8 @@ foreach ($receivers as $r) {
                                             <button onclick='openInvoice(<?= json_encode($row) ?>)' class="btn"
                                                 style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #3b82f6;">🧾
                                                 Invoiced</button>
-                                            <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn"
-                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: transparent; border: 1px solid #ef4444; color: #ef4444;">✕
+                                            <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn btn-outline-danger"
+                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">✕
                                                 Cancel</button>
                                         <?php endif; ?>
                                     <?php endif; ?>
@@ -535,13 +534,12 @@ foreach ($receivers as $r) {
     <!-- Complete Modal (In Progress) -->
     <div id="completeModal"
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel" style="margin: 5vh auto; max-width: 700px; position: relative;">
-            <button onclick="document.getElementById('completeModal').style.display='none'"
-                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: var(--text-color); border: 1px solid var(--card-border);">✕
+        <div class="glass-panel modal-panel" style="margin: 5vh auto; max-width: 700px; position: relative;">
+            <button onclick="document.getElementById('completeModal').style.display='none'" class="btn btn-outline-muted"
+                style="position: absolute; right: 1rem; top: 1rem;">✕
                 Close</button>
             <h3>Complete Transfer</h3>
-            <div id="complete-summary"
-                style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem; font-size: 0.9rem;">
+            <div id="complete-summary" class="modal-summary" style="margin-bottom: 1.5rem;">
             </div>
 
             <form method="POST" id="completeForm">
@@ -573,16 +571,14 @@ foreach ($receivers as $r) {
     <!-- Cancel Confirmation Modal (In Progress, or Completed until invoiced) -->
     <div id="cancelModal"
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel" style="margin: 15vh auto; max-width: 500px; position: relative; border-color: rgba(239, 68, 68, 0.4);">
-            <button onclick="document.getElementById('cancelModal').style.display='none'"
-                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: var(--text-color); border: 1px solid var(--card-border);">✕
+        <div class="glass-panel modal-panel" style="margin: 15vh auto; max-width: 500px; position: relative; border-color: rgba(239, 68, 68, 0.4);">
+            <button onclick="document.getElementById('cancelModal').style.display='none'" class="btn btn-outline-muted"
+                style="position: absolute; right: 1rem; top: 1rem;">✕
                 Close</button>
             <h3>✕ Cancel Transfer</h3>
-            <div id="cancel-summary"
-                style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
+            <div id="cancel-summary" class="modal-summary" style="margin-bottom: 1rem;">
             </div>
-            <div id="cancel-completed-warning"
-                style="display: none; border: 1px solid #f59e0b; border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.9rem; color: #f59e0b;">
+            <div id="cancel-completed-warning" class="modal-warning" style="display: none;">
                 ⚠ This transfer has already been <strong>completed and signed</strong>. Only cancel it if it was a
                 duplicate or a mistake — the record and signature are kept permanently, marked as Cancelled.
             </div>
@@ -597,8 +593,7 @@ foreach ($receivers as $r) {
                 <textarea name="cancel_reason" id="cancel_reason" rows="2"
                     placeholder="e.g. Duplicate transfer opened by mistake"></textarea>
                 <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
-                    <button type="button" class="btn"
-                        style="background: transparent; border: 1px solid var(--card-border); color: var(--text-color);"
+                    <button type="button" class="btn btn-outline-muted"
                         onclick="document.getElementById('cancelModal').style.display='none'">Keep Transfer</button>
                     <button type="submit" class="btn" style="background: #ef4444;">Yes — Cancel &amp; Restore
                         Stock</button>
@@ -610,13 +605,12 @@ foreach ($receivers as $r) {
     <!-- Invoice Confirmation Modal (Completed, not yet invoiced) -->
     <div id="invoiceModal"
         style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel" style="margin: 15vh auto; max-width: 480px; position: relative;">
-            <button onclick="document.getElementById('invoiceModal').style.display='none'"
-                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: var(--text-color); border: 1px solid var(--card-border);">✕
+        <div class="glass-panel modal-panel" style="margin: 15vh auto; max-width: 480px; position: relative;">
+            <button onclick="document.getElementById('invoiceModal').style.display='none'" class="btn btn-outline-muted"
+                style="position: absolute; right: 1rem; top: 1rem;">✕
                 Close</button>
             <h3>🧾 Mark as Invoiced</h3>
-            <div id="invoice-summary"
-                style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
+            <div id="invoice-summary" class="modal-summary" style="margin-bottom: 1rem;">
             </div>
             <p style="font-size: 0.9rem;">Confirm this shipment has been invoiced. The "Invoiced" button will no longer
                 be shown for this transfer.</p>
@@ -624,8 +618,7 @@ foreach ($receivers as $r) {
                 <input type="hidden" name="action" value="mark_invoiced">
                 <input type="hidden" name="coc_id" id="invoice_coc_id">
                 <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
-                    <button type="button" class="btn"
-                        style="background: transparent; border: 1px solid var(--card-border); color: var(--text-color);"
+                    <button type="button" class="btn btn-outline-muted"
                         onclick="document.getElementById('invoiceModal').style.display='none'">Cancel</button>
                     <button type="submit" class="btn" style="background: #3b82f6;">Yes — Mark as Invoiced</button>
                 </div>
