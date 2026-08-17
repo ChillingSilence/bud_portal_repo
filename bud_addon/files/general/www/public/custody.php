@@ -547,22 +547,43 @@ foreach ($receivers as $r) {
                 <input type="hidden" name="coc_id" id="complete_coc_id">
                 <input type="hidden" name="signature_data" id="complete_signature_data">
 
-                <label>Received By (print name)</label>
-                <input type="text" name="received_by" id="complete_received_by" required
-                    placeholder="Receiver's full name">
+                <div id="complete-entry">
+                    <label>Received By (print name)</label>
+                    <input type="text" name="received_by" id="complete_received_by" required
+                        placeholder="Receiver's full name">
 
-                <h4 style="margin-top: 1.5rem;">Receiver Signature</h4>
-                <p><small>Sign below to acknowledge receipt.</small></p>
-                <canvas id="sig-pad-complete" width="600" height="200"></canvas>
-                <button type="button" onclick="clearCompleteSignature()"
-                    style="font-size: 0.8rem; margin-top: 0.5rem;">Clear Signature</button>
+                    <h4 style="margin-top: 1.5rem;">Receiver Signature</h4>
+                    <p><small>Sign below to acknowledge receipt.</small></p>
+                    <canvas id="sig-pad-complete" width="600" height="200"></canvas>
+                    <button type="button" onclick="clearCompleteSignature()"
+                        style="font-size: 0.8rem; margin-top: 0.5rem;">Clear Signature</button>
 
-                <div style="margin-top: 2rem;">
-                    <button type="submit" class="btn" id="complete-submit" disabled
-                        style="background: #10b981;"
-                        onclick="return saveCompleteSignature()">Mark as Received ✓</button>
-                    <p id="complete-submit-hint" style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
-                        Enter the receiver's name and have them sign above to enable saving.</p>
+                    <div style="margin-top: 2rem;">
+                        <button type="button" class="btn" id="complete-submit" disabled
+                            style="background: #10b981;"
+                            onclick="reviewCompletion()">Review &amp; Save →</button>
+                        <p id="complete-submit-hint" style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
+                            Enter the receiver's name and have them sign above to continue.</p>
+                    </div>
+                </div>
+
+                <!-- Review step: shows exactly what will be saved before committing -->
+                <div id="complete-review" style="display: none;">
+                    <h4>Confirm Receipt</h4>
+                    <p style="margin-bottom: 0.25rem;">Received by:</p>
+                    <p id="review-name" style="font-size: 1.4rem; font-weight: 700; margin: 0 0 1rem;"></p>
+                    <p style="margin-bottom: 0.25rem;">Signature to be saved:</p>
+                    <img id="review-signature" alt="Signature preview"
+                        style="border: 1px solid var(--outline-muted-border); border-radius: 0.5rem; background: #fff; max-width: 100%; height: auto;">
+                    <p style="font-size: 0.85rem; opacity: 0.75; margin-top: 0.75rem;">
+                        Check the name is spelled correctly and the signature is right — a completed
+                        record can only be fixed by cancelling the whole transfer.</p>
+                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
+                        <button type="button" class="btn btn-outline-muted" onclick="backToCompleteEntry()">←
+                            Go Back</button>
+                        <button type="submit" class="btn" style="background: #10b981;">✓ Confirm &amp;
+                            Save</button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -689,13 +710,27 @@ foreach ($receivers as $r) {
             completeHasDrawn = false;
             updateCompleteSubmit();
         }
-        function saveCompleteSignature() {
+        // Step 1 -> 2: capture the signature and show the review screen so the
+        // name and autograph are checked before anything is committed
+        function reviewCompletion() {
             if (!completeHasDrawn) {
                 alert('Please have the receiver sign before saving.');
-                return false;
+                return;
             }
-            document.getElementById('complete_signature_data').value = completeCanvas.toDataURL();
-            return true;
+            const name = document.getElementById('complete_received_by').value.trim();
+            if (!name) {
+                return;
+            }
+            const data = completeCanvas.toDataURL();
+            document.getElementById('complete_signature_data').value = data;
+            document.getElementById('review-name').textContent = name;
+            document.getElementById('review-signature').src = data;
+            document.getElementById('complete-entry').style.display = 'none';
+            document.getElementById('complete-review').style.display = 'block';
+        }
+        function backToCompleteEntry() {
+            document.getElementById('complete-review').style.display = 'none';
+            document.getElementById('complete-entry').style.display = 'block';
         }
         // Hard block: no completion without a receiver name AND a drawn signature
         function updateCompleteSubmit() {
@@ -718,6 +753,7 @@ foreach ($receivers as $r) {
             const r = receiverMap[data.receiver_id];
             document.getElementById('complete_received_by').value = r ? (r.contact || '') : '';
             clearCompleteSignature();
+            backToCompleteEntry();
             document.getElementById('completeModal').style.display = 'block';
         }
 

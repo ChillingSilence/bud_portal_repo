@@ -1,4 +1,8 @@
 # Changelog
+## [0.19.0] - 2026-08-17
+### Added
+- **Completion review step**: Marking a Chain of Custody transfer as received now shows a confirmation screen before saving — the receiver's name in large text and a preview of the exact signature image that will be stored, with Go Back / Confirm & Save. Catches misspelled names and wrong/blank signatures before the record is committed (a completed record can otherwise only be fixed by cancelling the transfer).
+
 ## [0.18.2] - 2026-08-17
 ### Fixed
 - **Invisible outline buttons in light mode**: The global `.btn` style forces white text with `!important`, which blanked out every transparent "outline" button on the light theme — the Cancel buttons on the Chain of Custody page, the S29 Imports/Products/Top Orders toggles and tabs, the destruction register's "All" filter, and the Edit button on Verified Receivers (which also had a malformed class attribute). All outline buttons now use shared `btn-outline-*` classes that render correctly in both themes.
