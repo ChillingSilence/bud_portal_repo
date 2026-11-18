@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS stock_items (
   unit TEXT DEFAULT 'units',
   reorder_level DECIMAL(10, 2) DEFAULT 0.00,
   is_controlled BOOLEAN DEFAULT 0,
+  is_active BOOLEAN DEFAULT 1,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL

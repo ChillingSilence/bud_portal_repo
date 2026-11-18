@@ -41,7 +41,8 @@ try {
     $stats['completed_this_month'] = (int) $stmt->fetchColumn();
     $stmt = null;
 
-    foreach ($pdo->query("SELECT * FROM stock_items ORDER BY name ASC")->fetchAll() as $item) {
+    // Retired items are out of use, so they never count as low
+    foreach ($pdo->query("SELECT * FROM stock_items WHERE is_active = 1 ORDER BY name ASC")->fetchAll() as $item) {
         if (bud_is_low_stock($item)) {
             $low_items[] = $item;
         }

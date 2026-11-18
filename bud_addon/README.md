@@ -6,7 +6,7 @@ Assistant. Made by [Chill Division](https://www.chilldivision.co.nz).
 
 - **Stock.** What's on hand, with every addition and removal in each item's
   history. Controlled stock only leaves through a transfer or the
-  destruction register.
+  destruction register. Retire what you no longer use.
 - **Chain of custody.** Transfers with a shipping manifest, signed for on
   screen or, for a courier delivery, on the manifest itself and uploaded. A
   mistake can be cancelled, and its stock goes back.

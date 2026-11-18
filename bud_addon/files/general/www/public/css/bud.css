@@ -671,6 +671,11 @@ article > header + h2,
   font-size: 0.88rem;
 }
 
+/* Stock and Bundles: retired ones sit in their own list, under the rest */
+.retired-section {
+  margin-top: 2.5rem;
+}
+
 .panel-head-actions {
   display: flex;
   flex-wrap: wrap;
@@ -983,6 +988,45 @@ article .table-wrap:last-child {
   width: auto;
   min-width: 13rem;
   white-space: normal;
+}
+
+/* Stock has up to five buttons a row (Add, Remove, Edit, History, Retire).
+   On a wide screen they stay on one line and the item's name wraps instead,
+   and the in-use and Retired tables share their column widths so they line
+   up, one above the other. Bundles do the same. */
+@media (min-width: 1200px) {
+  .table-wrap .stock-table .row-actions--wrap {
+    white-space: nowrap;
+  }
+
+  .table-wrap .stock-table th:nth-child(2) {
+    width: 6.5rem;
+  }
+
+  .table-wrap .stock-table th:nth-child(3) {
+    width: 8rem;
+  }
+
+  .table-wrap .stock-table th:nth-child(4) {
+    width: 24rem;
+  }
+
+  /* Bundles' in-use and Retired tables line up the same way */
+  .table-wrap .bundle-table th:nth-child(1) {
+    width: 34%;
+  }
+
+  .table-wrap .bundle-table th:nth-child(2) {
+    width: 6.5rem;
+  }
+
+  .table-wrap .bundle-table th:nth-child(4) {
+    width: 11rem;
+  }
+
+  .table-wrap .bundle-table .row-actions {
+    width: auto;
+  }
 }
 
 .table-wrap .row-actions form {

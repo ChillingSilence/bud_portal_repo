@@ -34,7 +34,15 @@ history. Controlled stock can only leave through a chain of custody transfer
 or the destruction register. The Bundles button sets up packs made of
 several items.
 
-<img src="https://raw.githubusercontent.com/Chill-Division/bud_portal_repo/main/docs/screenshots/desktop-stock.png" alt="Stock, with low stock flagged" width="900">
+<img src="https://raw.githubusercontent.com/Chill-Division/bud_portal_repo/main/docs/screenshots/desktop-stock.png" alt="Stock, with low stock flagged and a retired item at the bottom" width="900">
+
+**Retiring stock.** An item you've stopped using can be retired. It drops
+off Stock and low stock, and out of new transfers, bundles and the
+destruction register. Its history and your reports don't change.
+Controlled stock has to be at zero first, and an item in a bundle can't go
+until the bundle does. Retired items are listed at the bottom of Stock,
+with Bring back, and adding one again points you there instead of making a
+second copy.
 
 **Chain of custody.** Start a transfer (its stock comes off straight away),
 say whether your staff or a courier takes it, and print its shipping
@@ -102,7 +110,8 @@ back at any time.
 <img src="https://raw.githubusercontent.com/Chill-Division/bud_portal_repo/main/docs/screenshots/desktop-verified-receivers.png" alt="Verified receivers, one of them retired" width="900">
 
 **Bundles.** Packs made of several stock items. Sending a bundle on a
-transfer takes each of its items out of stock.
+transfer takes each of its items out of stock. A bundle you no longer send
+can be retired, and brought back, the same way as stock.
 
 ### Light or dark
 

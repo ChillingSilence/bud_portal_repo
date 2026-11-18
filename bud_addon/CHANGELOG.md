@@ -1,4 +1,11 @@
 # Changelog
+## [1.1.0] - 2026-11-18
+Hide the stock items and bundles you've stopped using, without losing their history.
+
+### What's new
+- **Retire stock you no longer use.** Press Retire on the Stock page and the item drops off Stock and low stock, and out of new transfers, bundles and the destruction register. Controlled stock has to be at zero first. Retired items are listed at the bottom of Stock with Bring back, and their history and your reports don't change.
+- **Retire bundles too.** The Bundles page has Retire and Bring back the same way.
+
 ## [1.0.1] - 2026-11-18
 A small tidy-up for Home Assistant's latest Supervisor. Nothing changes in how BUD works.
 

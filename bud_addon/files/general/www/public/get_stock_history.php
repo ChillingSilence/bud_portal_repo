@@ -29,6 +29,13 @@ foreach ($logs as $log) {
     if ($diff < 0)
         $type = 'Removed';
 
+    // 1.1.0: retiring and bringing back change nothing on hand
+    if (($new['movement'] ?? '') === 'retired') {
+        $type = 'Retired';
+    } elseif (($new['movement'] ?? '') === 'brought_back') {
+        $type = 'Brought back';
+    }
+
     // Check for special context in notes
     $notes = $new['adjustment_notes'] ?? ($new['notes'] ?? '');
 

@@ -67,6 +67,7 @@ success.
 | `tests/nz_time_test.sh` | (1.0.0) The one-off conversion of stored UTC times to NZ time: summer and winter offsets, an early-morning entry on the 1st moving into its month, typed dates and S29 file dates left alone, runs once, and new entries stamped in NZ time | php-cli (pdo_sqlite), sqlite3 |
 | `tests/materials_in_test.sh` | (1.0.0) Reports' Materials in counts stock really added and leaves out stock a cancelled transfer put back (tagged, and BUD 0.19's note), the 12-month overview agrees, and the Agency CSV keeps its columns and values | php-cli (pdo_sqlite), curl, sqlite3 |
 | `tests/receivers_test.sh` | (1.0.0) Verified receivers are retired, never deleted: hidden from new transfers, address kept on past ones, brought back, and BUD 0.x's delete action retires too | php-cli (pdo_sqlite), curl, sqlite3 |
+| `tests/retire_test.sh` | (1.1.0) Stock items and bundles are retired, never deleted: upgrading keeps every item in use, controlled stock only at zero, not while a bundle still offered holds it, off Stock, low stock and every form, refused by the server on a transfer, the destruction register, a bundle, an edit or a second copy, kept in history and Reports, and brought back | php-cli (pdo_sqlite), curl, sqlite3 |
 | `tests/courier_test.sh` | (1.0.0) Courier transfers need the courier's name before any stock comes off, completing by uploading the signed manifest keeps only a real photo or PDF (by its first bytes), stores it beside the database and never under the web folder, `coc_document.php` serves it back only for its transfer, on-screen signatures still work, and Your company and receiver licence numbers save | php-cli (pdo_sqlite), curl, sqlite3 |
 | `tests/check_version.sh` | `config.yaml`, `BUD_VERSION` in config.php and the top CHANGELOG heading agree | bash only |
 | `tests/wording_test.sh` | (1.0.0) The brand guide on every page: tab title matches the heading, menu items and section cards match the pages they open, sentence case, no em dashes, semicolons or emoji, and nothing loaded from the internet (`tests/wording_check.php`) | php-cli (pdo_sqlite, dom), curl, sqlite3 |
@@ -77,10 +78,10 @@ Run everything that doesn't need Docker:
 ```bash
 for t in lint check_db_storage check_schema check_version smoke_test upgrade_test \
     audit_undo_test custody_test s29_import_test nz_time_test materials_in_test \
-    receivers_test courier_test wording_test; do bash tests/$t.sh || break; done
+    receivers_test courier_test retire_test wording_test; do bash tests/$t.sh || break; done
 ```
 
-The HTTP tests each start PHP's built-in server on their own port (8094 to
+The HTTP tests each start PHP's built-in server on their own port (8093 to
 8099). If one of those is busy, set its `*_PORT` variable (for example
 `CUSTODY_PORT=8443`).
 
@@ -106,6 +107,7 @@ BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21 PORT=9000 bash tests/docker_pe
 - **NZ time, Materials in, receivers and courier tests** run
   `tests/nz_time_test.sh`, `tests/materials_in_test.sh`,
   `tests/receivers_test.sh` and `tests/courier_test.sh` (1.0.0).
+- **Retire test** runs `tests/retire_test.sh` (1.1.0).
 - **Wording and version check** runs `tests/check_version.sh` and
   `tests/wording_test.sh`.
 - **Home Assistant add-on lint** — [frenck/action-addon-linter](https://github.com/frenck/action-addon-linter)

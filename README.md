@@ -6,7 +6,7 @@ BUD (Business Utility Dashboard) keeps track of stock, chain of custody
 transfers, destroyed stock and Section 29 supply records, and works out the
 monthly figures for the Medicinal Cannabis Agency.
 
-* Stock levels, with every addition and removal in each item's history
+* Stock levels, with every addition and removal in each item's history, and retiring what you no longer use
 * Chain of custody transfers with shipping manifests, signed for on screen or on the manifest itself
 * A permanent destruction register with witness signatures
 * The Section 29 register, from the pharmacies' monthly files
@@ -37,7 +37,7 @@ and you upload it to complete the transfer.
 **Stock and the destruction register.** What's on hand, with low stock
 flagged, and a permanent record of anything destroyed, with a witness.
 
-<img src="docs/screenshots/desktop-stock.png" alt="Stock, with low stock flagged" width="360"> <img src="docs/screenshots/desktop-destruction-register.png" alt="The destruction register" width="360">
+<img src="docs/screenshots/desktop-stock.png" alt="Stock, with low stock flagged and retired items at the bottom" width="360"> <img src="docs/screenshots/desktop-destruction-register.png" alt="The destruction register" width="360">
 
 **Reporting.** Controlled stock in and out each month with the CSV for the
 Agency, the Section 29 register, and who's buying what.

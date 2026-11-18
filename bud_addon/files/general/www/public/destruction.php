@@ -1,6 +1,7 @@
 <?php
 require_once 'config.php';
 require_once 'includes/audit.php';
+require_once 'includes/stock.php';
 
 $message = '';
 $message_error = false;
@@ -24,6 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'destr
 
         if (!$item) {
             $message = "Choose the stock item that was destroyed.";
+            $message_error = true;
+        } elseif (!bud_is_active($item)) {
+            $message = $item['name'] . " is retired. Bring it back on the Stock page first.";
             $message_error = true;
         } elseif ($qty <= 0) {
             $message = "The quantity destroyed has to be more than 0.";
@@ -101,9 +105,9 @@ if ($filter_month !== '') {
 }
 $register = $reg_stmt->fetchAll();
 
-// Stock items for the form (anything in stock; controlled items flagged)
+// Stock items for the form: anything in stock and in use, controlled first
 $stock_options = $pdo->query("SELECT id, name, sku, quantity, unit, is_controlled
-    FROM stock_items WHERE quantity > 0 ORDER BY is_controlled DESC, name ASC")->fetchAll();
+    FROM stock_items WHERE quantity > 0 AND is_active = 1 ORDER BY is_controlled DESC, name ASC")->fetchAll();
 
 // The CSV export: the same columns and values BUD 0.19 wrote, built from the
 // stored data rather than the table on screen

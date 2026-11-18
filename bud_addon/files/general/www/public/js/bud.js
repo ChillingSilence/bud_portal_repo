@@ -6,8 +6,9 @@
  * - the sun/moon theme switch, saved as 'bud-theme' (header.php applies the
  *   saved theme before first paint)
  * - escapeHtml(), formatDate(), formatDateTime(), formatQty()
- * - pop-ups: openDialog(), closeDialog(), confirmAction(), and forms with
- *   data-confirm-title that ask before they send
+ * - pop-ups: openDialog(), closeDialog(), confirmAction(), forms with
+ *   data-confirm-title that ask before they send, and buttons with
+ *   data-notice-title that explain why something can't be done yet
  * - forms can't be sent twice by a double tap
  * - exportTableCsv() for the CSV buttons
  * - createSignaturePad() for the signature boxes
@@ -218,6 +219,20 @@ document.addEventListener('submit', (event) => {
     });
 });
 
+// Buttons marked data-notice-title explain, in a pop-up with just OK, why
+// something can't be done yet (say, retiring stock that's still on hand)
+document.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-notice-title]');
+    if (!button) return;
+    event.preventDefault();
+    confirmAction({
+        title: button.dataset.noticeTitle,
+        message: button.dataset.noticeMessage || '',
+        confirmLabel: 'OK',
+        cancelLabel: false,
+    });
+});
+
 // Bubble phase: after the page's handlers. If none of them cancelled the
 // submit, it's really on its way.
 document.addEventListener('submit', (event) => {
@@ -240,7 +255,8 @@ window.addEventListener('pageshow', (event) => {
 /**
  * A confirm pop-up. Resolves true (confirm) or false (cancel).
  * @param {Object} options title, message, items (a list), confirmLabel,
- *   cancelLabel, danger (red confirm button)
+ *   cancelLabel (false for a notice with just the confirm button), danger
+ *   (red confirm button)
  * @returns {Promise<boolean>}
  */
 function confirmAction(options) {
@@ -249,10 +265,15 @@ function confirmAction(options) {
     const message = opts.message || '';
     const items = opts.items || [];
     const confirmLabel = opts.confirmLabel || 'Confirm';
+    const showCancel = opts.cancelLabel !== false;
     const cancelLabel = opts.cancelLabel || 'Cancel';
     const danger = !!opts.danger;
 
     if (typeof HTMLDialogElement === 'undefined') {
+        if (!showCancel) {
+            window.alert(title + (message ? '\n\n' + message : ''));
+            return Promise.resolve(true);
+        }
         return Promise.resolve(window.confirm(title + (message ? '\n\n' + message : '')));
     }
 
@@ -268,7 +289,7 @@ function confirmAction(options) {
                 ${message ? '<p class="modal-text">' + escapeHtml(message) + '</p>' : ''}
                 ${list}
                 <footer>
-                    <button type="button" class="secondary outline" data-modal-cancel>${escapeHtml(cancelLabel)}</button>
+                    ${showCancel ? '<button type="button" class="secondary outline" data-modal-cancel>' + escapeHtml(cancelLabel) + '</button>' : ''}
                     <button type="button"${danger ? ' class="danger"' : ''} data-modal-confirm>${escapeHtml(confirmLabel)}</button>
                 </footer>
             </article>`;
@@ -279,7 +300,8 @@ function confirmAction(options) {
             dialog.remove();
             resolve(result);
         };
-        dialog.querySelector('[data-modal-cancel]').addEventListener('click', () => close(false));
+        const cancelButton = dialog.querySelector('[data-modal-cancel]');
+        if (cancelButton) cancelButton.addEventListener('click', () => close(false));
         dialog.querySelector('[data-modal-confirm]').addEventListener('click', () => close(true));
         dialog.addEventListener('cancel', (e) => { e.preventDefault(); close(false); });
         dialog.addEventListener('click', (e) => { if (e.target === dialog) close(false); });

@@ -96,7 +96,7 @@ $shots = @(
     @('desktop-dashboard',               '/index.php',          1280, 1000, 1, $false, 'page',   'light', ''),
     @('desktop-dashboard-dark',          '/index.php',          1280, 1000, 1, $false, 'page',   'dark',  ''),
     @('desktop-tracking',                '/tracking.php',       1280, 900,  1, $false, 'page',   'light', ''),
-    @('desktop-stock',                   '/stock.php',          1280, 1000, 1, $false, 'page',   'light', ''),
+    @('desktop-stock',                   '/stock.php',          1280, 1500, 1, $false, 'page',   'light', ''),
     @('desktop-chain-of-custody',        '/custody.php',        1280, 1150, 1, $false, 'page',   'light', ''),
     @('desktop-new-transfer-courier',    '/custody.php',        1280, 1050, 1, $false, 'screen', 'light', $newTransfer),
     @('desktop-complete-signed-manifest','/custody.php',        1280, 1000, 1, $false, 'screen', 'light', $completeCourier),

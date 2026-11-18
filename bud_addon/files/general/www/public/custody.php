@@ -3,6 +3,7 @@ require_once 'config.php';
 require_once 'includes/audit.php';
 require_once 'includes/settings.php';
 require_once 'includes/documents.php';
+require_once 'includes/stock.php';
 
 $message = '';
 $message_error = false;
@@ -28,6 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tracking_number = $delivery_method === 'courier' ? trim($_POST['tracking_number'] ?? '') : '';
             if ($delivery_method === 'courier' && $courier_company === '') {
                 throw new Exception("Say which courier is taking it. Nothing was changed.");
+            }
+
+            // Nothing retired goes out. The form may have been open since
+            // before something was retired.
+            $retired_line = bud_retired_transfer_line($pdo, (array) ($_POST['item_id'] ?? []));
+            if ($retired_line !== '') {
+                throw new Exception($retired_line . " Nothing was changed.");
             }
 
             // Resolve destination from verified_receivers
@@ -310,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $history = $pdo->query("SELECT * FROM chain_of_custody ORDER BY id DESC LIMIT 50")->fetchAll();
 
 // Fetch controlled substances only
-$stock_options = $pdo->query("SELECT id, name, sku, unit FROM stock_items WHERE quantity > 0 AND is_controlled = 1 ORDER BY name ASC")->fetchAll();
+$stock_options = $pdo->query("SELECT id, name, sku, unit FROM stock_items WHERE quantity > 0 AND is_controlled = 1 AND is_active = 1 ORDER BY name ASC")->fetchAll();
 
 // Fetch active bundles
 $bundle_options = $pdo->query("SELECT id, name, sku FROM product_bundles WHERE is_active = 1 ORDER BY name ASC")->fetchAll();

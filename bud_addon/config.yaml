@@ -1,7 +1,7 @@
 name: "BUD Portal"
 description: "BUD - Business Utility Dashboard"
 url: "https://www.chilldivision.co.nz"
-version: "1.0.1"
+version: "1.1.0"
 slug: "bud_addon"
 panel_icon: mdi:truck-delivery
 init: false

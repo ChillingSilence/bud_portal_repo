@@ -222,6 +222,14 @@ try {
         updated_at DATETIME
     )");
 
+    // 1.1.0: stock items can be retired. A retired item drops off Stock, low
+    // stock and every new entry, and is never deleted (history and reports
+    // keep it). Bundles have had is_active since 0.x.
+    $si_cols = array_column($pdo->query("PRAGMA table_info(stock_items)")->fetchAll(), 'name');
+    if ($si_cols && !in_array('is_active', $si_cols, true)) {
+        $pdo->exec("ALTER TABLE stock_items ADD COLUMN is_active BOOLEAN DEFAULT 1");
+    }
+
     // 1.0.0: times stored before now were UTC. Convert them to NZ time, once.
     // This runs after every schema change above (the 0.14 invoiced_at
     // backfill was UTC too) and before anything below writes a new time.
@@ -261,5 +269,5 @@ function h($string)
 define('APP_NAME', 'BUD');
 // The release. Bump it with config.yaml's version and the CHANGELOG heading
 // (tests/check_version.sh checks they match).
-define('BUD_VERSION', '1.0.1');
+define('BUD_VERSION', '1.1.0');
 ?>

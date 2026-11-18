@@ -112,12 +112,31 @@ $audit($ids[0], 'UPDATE', ['name' => $items[0][0], 'sku' => 'CA-10', 'quantity' 
     ['name' => $items[0][0], 'sku' => 'CA-10', 'quantity' => 420, 'unit' => 'jars', 'adjustment_notes' => 'Packed batch B2611-01'],
     date('Y-m-d') . ' 08:30:00');
 
+// Retired (1.1.0): a jar size nobody packs any more, and labels from an old
+// design. They sit under Retired at the bottom of Stock, off low stock.
+foreach ([
+    // name, SKU, unit, reorder level, first stock, left now, note when it was used
+    ['Glass jar, 30 ml', 'JAR-30', 'units', 100, 400, 0, 'The last of them used'],
+    ['Product label, old design', 'LBL-00', 'units', 0, 500, 85, 'Used on the last batch in the old design'],
+] as $it) {
+    $id = $q("INSERT INTO stock_items (name, sku, is_controlled, quantity, unit, reorder_level, description, is_active, created_at, updated_at) VALUES (?, ?, 0, ?, ?, ?, '', 0, ?, ?)",
+        [$it[0], $it[1], $it[5], $it[2], $it[3], $ago(44), $ago(6)]);
+    $row = ['name' => $it[0], 'sku' => $it[1], 'unit' => $it[2]];
+    $audit($id, 'INSERT', null, $row + ['quantity' => $it[4]], $ago(44));
+    $audit($id, 'UPDATE', $row + ['quantity' => $it[4]], $row + ['quantity' => $it[5], 'adjustment_notes' => $it[6]], $ago(12));
+    $audit($id, 'UPDATE', $row + ['quantity' => $it[5], 'is_active' => 1], $row + ['quantity' => $it[5], 'is_active' => 0, 'movement' => 'retired'], $ago(6));
+}
+
 // ── A bundle ─────────────────────────────────────────────────────────────────
 $pack = $q("INSERT INTO product_bundles (name, sku, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
     ['Cultivar A retail pack', 'PK-CA', 'A jar of Cultivar A with its label and leaflet', $ago(45), $ago(45)]);
 foreach ([[$ids[0], 1], [$ids[4], 1], [$ids[5], 1]] as $part) {
     $q("INSERT INTO bundle_items (bundle_id, stock_item_id, quantity) VALUES (?, ?, ?)", [$pack, $part[0], $part[1]]);
 }
+// And a retired one, a sample pack that's no longer sent
+$sample = $q("INSERT INTO product_bundles (name, sku, description, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+    ['Cultivar B sample pack', 'SP-CB', 'Two jars of Cultivar B for new pharmacies', $ago(44), $ago(8)]);
+$q("INSERT INTO bundle_items (bundle_id, stock_item_id, quantity) VALUES (?, ?, ?)", [$sample, $ids[1], 2]);
 
 // ── Verified receivers ───────────────────────────────────────────────────────
 $joes = $q("INSERT INTO verified_receivers (name, contact_person, address, phone, licence_number, created_at) VALUES (?, ?, ?, ?, ?, ?)",

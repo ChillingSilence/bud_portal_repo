@@ -44,7 +44,8 @@ done
 # always match what in-place migrations produce — see tests/upgrade_test.sh)
 for col in "chain_of_custody:invoiced_at" "chain_of_custody:cancelled_at" "chain_of_custody:cancel_reason" "chain_of_custody:receiver_id" "chain_of_custody:received_by" "s29_supplies:raw_quantity" \
     "chain_of_custody:delivery_method" "chain_of_custody:courier_company" "chain_of_custody:tracking_number" \
-    "chain_of_custody:signed_document" "chain_of_custody:signed_document_name" "verified_receivers:licence_number"; do
+    "chain_of_custody:signed_document" "chain_of_custody:signed_document_name" "verified_receivers:licence_number" \
+    "stock_items:is_active"; do
     table="${col%%:*}"; column="${col##*:}"
     found=$(sqlite3 "$TMP/schema_test.db" \
         "SELECT COUNT(*) FROM pragma_table_info('$table') WHERE name='$column';")

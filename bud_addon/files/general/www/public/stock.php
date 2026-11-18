@@ -11,26 +11,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create') {
-        try {
-            $stmt = $pdo->prepare("INSERT INTO stock_items (name, sku, description, quantity, unit, reorder_level, is_controlled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $now = bud_now();
-            $stmt->execute([
-                $_POST['name'],
-                $_POST['sku'],
-                $_POST['description'],
-                $_POST['quantity'],
-                $_POST['unit'],
-                $_POST['reorder_level'],
-                isset($_POST['is_controlled']) ? 1 : 0,
-                $now,
-                $now,
-            ]);
-            $id = $pdo->lastInsertId();
-            Audit::log($pdo, 'stock_items', $id, 'INSERT', null, $_POST);
-            $message = "Added " . $_POST['name'] . " to stock.";
-        } catch (Exception $e) {
-            $message = "Couldn't add the item: " . $e->getMessage();
+        // A retired item comes back with Bring back, not as a second copy
+        $name_in = trim($_POST['name'] ?? '');
+        $sku_in = trim($_POST['sku'] ?? '');
+        $stmt = $pdo->prepare("SELECT name, sku FROM stock_items WHERE is_active = 0 AND (LOWER(TRIM(name)) = LOWER(?) OR (? <> '' AND LOWER(TRIM(sku)) = LOWER(?))) ORDER BY name ASC LIMIT 1");
+        $stmt->execute([$name_in, $sku_in, $sku_in]);
+        $retired_match = $stmt->fetch();
+        $stmt = null;
+        if ($retired_match) {
+            $message = $retired_match['name'] . (($retired_match['sku'] ?? '') !== '' ? ' (' . $retired_match['sku'] . ')' : '') . " is retired. Bring it back from Retired at the bottom of this page instead of adding it again.";
             $message_error = true;
+        } else {
+            try {
+                $stmt = $pdo->prepare("INSERT INTO stock_items (name, sku, description, quantity, unit, reorder_level, is_controlled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $now = bud_now();
+                $stmt->execute([
+                    $_POST['name'],
+                    $_POST['sku'],
+                    $_POST['description'],
+                    $_POST['quantity'],
+                    $_POST['unit'],
+                    $_POST['reorder_level'],
+                    isset($_POST['is_controlled']) ? 1 : 0,
+                    $now,
+                    $now,
+                ]);
+                $id = $pdo->lastInsertId();
+                Audit::log($pdo, 'stock_items', $id, 'INSERT', null, $_POST);
+                $message = "Added " . $_POST['name'] . " to stock.";
+            } catch (Exception $e) {
+                $message = "Couldn't add the item: " . $e->getMessage();
+                $message_error = true;
+            }
         }
     } elseif ($action === 'edit') {
         $id = $_POST['id'] ?? 0;
@@ -40,7 +52,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $old = $stmt->fetch();
         $stmt = null;
 
-        if ($old) {
+        if ($old && !bud_is_active($old)) {
+            $message = $old['name'] . " is retired. Bring it back first.";
+            $message_error = true;
+        } elseif ($old) {
             $stmt = $pdo->prepare("UPDATE stock_items SET name=?, sku=?, description=?, quantity=?, unit=?, reorder_level=?, is_controlled=?, updated_at=? WHERE id=?");
             $stmt->execute([
                 $_POST['name'],
@@ -75,7 +90,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $item = $stmt->fetch();
             $stmt = null;
 
-            if ($item) {
+            if ($item && !bud_is_active($item)) {
+                $message = $item['name'] . " is retired. Bring it back first.";
+                $message_error = true;
+            } elseif ($item) {
                 // Validation for subtract
                 if ($operation === 'subtract') {
                     if ($item['is_controlled']) {
@@ -115,15 +133,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message_error = true;
             }
         }
+    } elseif ($action === 'retire_item' || $action === 'restore_item') {
+        // Retired, never deleted: transfers, the destruction register, the
+        // Agency report and the item's history all refer to it
+        $stmt = $pdo->prepare("SELECT * FROM stock_items WHERE id = ?");
+        $stmt->execute([intval($_POST['item_id'] ?? 0)]);
+        $item = $stmt->fetch();
+        $stmt = null;
+
+        if (!$item) {
+            $message = "That stock item wasn't found.";
+            $message_error = true;
+        } elseif ($action === 'retire_item') {
+            $names = bud_active_bundle_names($pdo)[(int) $item['id']] ?? [];
+            $blocker = bud_retire_blocker($item, $names);
+            if (!bud_is_active($item)) {
+                $message = $item['name'] . " is already retired.";
+            } elseif ($blocker !== '') {
+                $message = $blocker;
+                $message_error = true;
+            } else {
+                $pdo->prepare("UPDATE stock_items SET is_active = 0, updated_at = ? WHERE id = ?")->execute([bud_now(), $item['id']]);
+                $new_data = $item;
+                $new_data['is_active'] = 0;
+                $new_data['movement'] = 'retired';
+                Audit::log($pdo, 'stock_items', $item['id'], 'UPDATE', $item, $new_data);
+                $message = "Retired " . $item['name'] . ". It's listed under Retired at the bottom of this page.";
+            }
+        } else {
+            if (bud_is_active($item)) {
+                $message = $item['name'] . " is already in use.";
+            } else {
+                $pdo->prepare("UPDATE stock_items SET is_active = 1, updated_at = ? WHERE id = ?")->execute([bud_now(), $item['id']]);
+                $new_data = $item;
+                $new_data['is_active'] = 1;
+                $new_data['movement'] = 'brought_back';
+                Audit::log($pdo, 'stock_items', $item['id'], 'UPDATE', $item, $new_data);
+                $message = "Brought " . $item['name'] . " back. It's offered for new entries again.";
+            }
+        }
     }
 }
 
-// Fetch Data
-$stock = $pdo->query("
-    SELECT *
-    FROM stock_items
-    ORDER BY name ASC
-")->fetchAll();
+// In use first, then the retired list at the bottom
+$stock = $pdo->query("SELECT * FROM stock_items WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
+$retired = $pdo->query("SELECT * FROM stock_items WHERE is_active = 0 ORDER BY name ASC")->fetchAll();
+$bundle_names = bud_active_bundle_names($pdo);
 
 $pageTitle = 'Stock';
 require 'includes/header.php';
@@ -141,11 +196,13 @@ require 'includes/header.php';
             <a href="bundles.php" role="button" class="secondary outline">Bundles</a>
         </div>
 
-        <?php if (empty($stock)): ?>
+        <?php if (empty($stock) && empty($retired)): ?>
             <p class="empty-note">No stock items yet. Add your first one above.</p>
+        <?php elseif (empty($stock)): ?>
+            <p class="empty-note">No stock items in use. Bring one back from Retired below, or add a new one.</p>
         <?php else: ?>
             <div class="table-wrap">
-                <table class="wide-table">
+                <table class="wide-table stock-table">
                     <thead>
                         <tr>
                             <th>Item</th>
@@ -174,12 +231,73 @@ require 'includes/header.php';
                                     <?php endif; ?>
                                     <button type="button" class="secondary outline" data-stock-action="edit" data-item="<?= $itemJson ?>">Edit</button>
                                     <button type="button" class="secondary outline" data-stock-action="history" data-item="<?= $itemJson ?>">History</button>
+                                    <?php $blocker = bud_retire_blocker($item, $bundle_names[(int) $item['id']] ?? []);
+                                    if ($blocker !== ''): ?>
+                                        <button type="button" class="secondary outline" data-notice-title="<?= h($item['name']) ?> can't be retired yet" data-notice-message="<?= h($blocker) ?>">Retire</button>
+                                    <?php else:
+                                        $onHand = abs((float) $item['quantity']) >= 0.005
+                                            ? 'Its ' . trim(bud_qty($item['quantity']) . ' ' . $item['unit']) . ' on hand stay recorded with it. '
+                                            : ''; ?>
+                                        <form method="POST"
+                                            data-confirm-title="Retire <?= h($item['name']) ?>?"
+                                            data-confirm-message="<?= h($onHand) ?>It won't show on Stock or low stock, or be offered for new transfers, bundles or the destruction register. Its history and your reports don't change, and you can bring it back at any time."
+                                            data-confirm-label="Retire">
+                                            <input type="hidden" name="action" value="retire_item">
+                                            <input type="hidden" name="item_id" value="<?= h($item['id']) ?>">
+                                            <button type="submit" class="secondary outline">Retire</button>
+                                        </form>
+                                    <?php endif; ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
+        <?php endif; ?>
+
+        <?php if (!empty($retired)): ?>
+            <section class="retired-section" aria-labelledby="retired-heading">
+                <div class="panel-head">
+                    <div>
+                        <h2 id="retired-heading">Retired</h2>
+                        <p>Left out of low stock, and not offered for new transfers, bundles or the destruction register. History and reports keep them.</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="wide-table stock-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>SKU</th>
+                                <th class="num">On hand</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($retired as $item):
+                                $itemJson = h(json_encode($item)); ?>
+                                <tr>
+                                    <td class="cell-long">
+                                        <strong><?= h($item['name']) ?></strong>
+                                        <?php if ($item['is_controlled']): ?><span class="badge">Controlled</span><?php endif; ?>
+                                        <?php if (!empty($item['description'])): ?><small><?= h($item['description']) ?></small><?php endif; ?>
+                                    </td>
+                                    <td class="nowrap"><?= h($item['sku']) ?></td>
+                                    <td class="num"><?= h(bud_qty($item['quantity'])) ?> <?= h($item['unit']) ?></td>
+                                    <td class="row-actions row-actions--wrap">
+                                        <button type="button" class="secondary outline" data-stock-action="history" data-item="<?= $itemJson ?>">History</button>
+                                        <form method="POST">
+                                            <input type="hidden" name="action" value="restore_item">
+                                            <input type="hidden" name="item_id" value="<?= h($item['id']) ?>">
+                                            <button type="submit" class="secondary outline">Bring back</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         <?php endif; ?>
     </main>
 
@@ -370,11 +488,15 @@ require 'includes/header.php';
                         const diff = Number(row.diff);
                         const sign = diff > 0 ? '+' : '';
                         const cls = diff > 0 ? 'num num--in' : (diff < 0 ? 'num num--out' : 'num');
-                        const type = diff > 0 ? 'Added' : (diff < 0 ? 'Removed' : 'Edited');
+                        // Retiring and bringing back change nothing on hand
+                        const retiring = row.type === 'Retired' || row.type === 'Brought back';
+                        const type = retiring
+                            ? row.type
+                            : (diff > 0 ? 'Added' : (diff < 0 ? 'Removed' : 'Edited'));
                         html += '<tr>' +
                             '<td>' + escapeHtml(formatDateTime(row.timestamp)) + '</td>' +
                             '<td>' + escapeHtml(type) + '</td>' +
-                            '<td class="' + cls + '">' + escapeHtml(sign + formatQty(diff)) + '</td>' +
+                            '<td class="' + cls + '">' + (retiring ? '' : escapeHtml(sign + formatQty(diff))) + '</td>' +
                             '<td class="num">' + escapeHtml(formatQty(row.qty_new)) + '</td>' +
                             '<td class="cell-long">' + escapeHtml(row.notes || '') + '</td>' +
                             '</tr>';

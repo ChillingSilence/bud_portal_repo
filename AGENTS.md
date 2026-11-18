@@ -65,6 +65,12 @@ database on every request.
   entry, not even through the Admin undo.
 - Verified receivers are retired, never deleted. Past transfers link to
   them, and their address belongs on those packing slips and reports.
+- Stock items and bundles are retired, never deleted (`is_active`). A
+  retired one is left out of Stock, low stock and every form, and the
+  server refuses it on a transfer, the destruction register or a bundle.
+  History and reports keep it. Controlled stock can only be retired at
+  zero, and an item can't be retired while a bundle that's still offered
+  holds it (`includes/stock.php`, `tests/retire_test.sh`).
 - Controlled stock only leaves through a chain of custody transfer or the
   destruction register.
 - Stock that a cancelled transfer puts back isn't stock received. Tag it

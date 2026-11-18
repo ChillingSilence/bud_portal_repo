@@ -1,6 +1,7 @@
 <?php
 require_once 'config.php';
 require_once 'includes/audit.php';
+require_once 'includes/stock.php';
 
 $message = '';
 $message_error = false;
@@ -9,7 +10,25 @@ $message_error = false;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
-    if ($action === 'create') {
+    // A retired stock item can't go into a bundle. The form may have been
+    // open since before it was retired.
+    $retired_names = [];
+    if ($action === 'create' || $action === 'edit') {
+        $picked = array_values(array_filter(array_map('intval', (array) ($_POST['bundle_item_id'] ?? []))));
+        if ($picked) {
+            $marks = implode(',', array_fill(0, count($picked), '?'));
+            $stmt = $pdo->prepare("SELECT DISTINCT name FROM stock_items WHERE is_active = 0 AND id IN ($marks) ORDER BY name ASC");
+            $stmt->execute($picked);
+            $retired_names = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $stmt = null;
+        }
+    }
+
+    if ($retired_names) {
+        $one = count($retired_names) === 1;
+        $message = bud_and_list($retired_names) . ($one ? ' is' : ' are') . ' retired. Bring ' . ($one ? 'it' : 'them') . ' back on the Stock page first, or choose another item.';
+        $message_error = true;
+    } elseif ($action === 'create') {
         try {
             $name = $_POST['name'];
             $sku = $_POST['sku'] ?? '';
@@ -74,22 +93,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $message = "Couldn't save the bundle: " . $e->getMessage();
             $message_error = true;
         }
-    } elseif ($action === 'delete') {
-        try {
-            $id = $_POST['id'];
-            $stmt = $pdo->prepare("UPDATE product_bundles SET is_active = 0 WHERE id = ?");
-            $stmt->execute([$id]);
-            $message = "Bundle deleted.";
-        } catch (Exception $e) {
-            $message = "Couldn't delete the bundle: " . $e->getMessage();
+    } elseif ($action === 'retire_bundle' || $action === 'delete' || $action === 'restore_bundle') {
+        // Bundles are retired, never deleted: past transfers name them.
+        // ('delete' came from BUD 0.x and only ever hid the bundle too.)
+        $stmt = $pdo->prepare("SELECT * FROM product_bundles WHERE id = ?");
+        $stmt->execute([intval($_POST['id'] ?? 0)]);
+        $bundle = $stmt->fetch();
+        $stmt = null;
+
+        if (!$bundle) {
+            $message = "That bundle wasn't found.";
             $message_error = true;
+        } elseif ($action !== 'restore_bundle') {
+            if (!bud_is_active($bundle)) {
+                $message = $bundle['name'] . " is already retired.";
+            } else {
+                $pdo->prepare("UPDATE product_bundles SET is_active = 0, updated_at = ? WHERE id = ?")->execute([bud_now(), $bundle['id']]);
+                $new_data = $bundle;
+                $new_data['is_active'] = 0;
+                Audit::log($pdo, 'product_bundles', $bundle['id'], 'UPDATE', $bundle, $new_data);
+                $message = "Retired " . $bundle['name'] . ". It's listed under Retired at the bottom of this page.";
+            }
+        } else {
+            $blocker = bud_bundle_restore_blocker($pdo, $bundle);
+            if (bud_is_active($bundle)) {
+                $message = $bundle['name'] . " is already in use.";
+            } elseif ($blocker !== '') {
+                $message = $blocker;
+                $message_error = true;
+            } else {
+                $pdo->prepare("UPDATE product_bundles SET is_active = 1, updated_at = ? WHERE id = ?")->execute([bud_now(), $bundle['id']]);
+                $new_data = $bundle;
+                $new_data['is_active'] = 1;
+                Audit::log($pdo, 'product_bundles', $bundle['id'], 'UPDATE', $bundle, $new_data);
+                $message = "Brought " . $bundle['name'] . " back. It's offered on new transfers again.";
+            }
         }
     }
 }
 
-// Fetch bundles and stock items
+// Bundles in use, then retired ones. Only stock items in use can go in one.
 $bundles = $pdo->query("SELECT * FROM product_bundles WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
-$stock_items = $pdo->query("SELECT id, name, sku, unit FROM stock_items ORDER BY name ASC")->fetchAll();
+$retired_bundles = $pdo->query("SELECT * FROM product_bundles WHERE is_active = 0 ORDER BY name ASC")->fetchAll();
+$stock_items = $pdo->query("SELECT id, name, sku, unit FROM stock_items WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
 
 $items_stmt = $pdo->prepare("
     SELECT bi.quantity, si.name, si.unit
@@ -113,11 +159,13 @@ require 'includes/header.php';
             <button type="button" onclick="openBundle(null)">New bundle</button>
         </div>
 
-        <?php if (empty($bundles)): ?>
+        <?php if (empty($bundles) && empty($retired_bundles)): ?>
             <p class="empty-note">No bundles yet.</p>
+        <?php elseif (empty($bundles)): ?>
+            <p class="empty-note">No bundles in use. Bring one back from Retired below, or make a new one.</p>
         <?php else: ?>
             <div class="table-wrap">
-                <table class="wide-table">
+                <table class="wide-table bundle-table">
                     <thead>
                         <tr>
                             <th>Bundle</th>
@@ -146,12 +194,76 @@ require 'includes/header.php';
                                 </td>
                                 <td class="row-actions">
                                     <button type="button" class="secondary outline" data-bundle="<?= h(json_encode($bundle)) ?>" onclick="openBundle(JSON.parse(this.dataset.bundle))">Edit</button>
+                                    <form method="POST"
+                                        data-confirm-title="Retire <?= h($bundle['name']) ?>?"
+                                        data-confirm-message="It won't be offered on new transfers. Past transfers keep it, and you can bring it back at any time."
+                                        data-confirm-label="Retire">
+                                        <input type="hidden" name="action" value="retire_bundle">
+                                        <input type="hidden" name="id" value="<?= h($bundle['id']) ?>">
+                                        <button type="submit" class="secondary outline">Retire</button>
+                                    </form>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
+        <?php endif; ?>
+
+        <?php if (!empty($retired_bundles)): ?>
+            <section class="retired-section" aria-labelledby="retired-heading">
+                <div class="panel-head">
+                    <div>
+                        <h2 id="retired-heading">Retired</h2>
+                        <p>Not offered on new transfers. Past transfers keep them.</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="wide-table bundle-table">
+                        <thead>
+                            <tr>
+                                <th>Bundle</th>
+                                <th>SKU</th>
+                                <th>Contents</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($retired_bundles as $bundle):
+                                $items_stmt->execute([$bundle['id']]);
+                                $bundle_items = $items_stmt->fetchAll();
+                                $blocker = bud_bundle_restore_blocker($pdo, $bundle); ?>
+                                <tr>
+                                    <td class="cell-long">
+                                        <strong><?= h($bundle['name']) ?></strong>
+                                        <?php if (!empty($bundle['description'])): ?><small><?= h($bundle['description']) ?></small><?php endif; ?>
+                                    </td>
+                                    <td><?= h($bundle['sku']) ?></td>
+                                    <td class="cell-long">
+                                        <?php if (empty($bundle_items)): ?>
+                                            <span class="badge badge--neutral">No items</span>
+                                        <?php endif; ?>
+                                        <?php foreach ($bundle_items as $item): ?>
+                                            <?= h(bud_qty($item['quantity'])) ?> × <?= h($item['name']) ?><br>
+                                        <?php endforeach; ?>
+                                    </td>
+                                    <td class="row-actions">
+                                        <?php if ($blocker !== ''): ?>
+                                            <button type="button" class="secondary outline" data-notice-title="<?= h($bundle['name']) ?> can't come back yet" data-notice-message="<?= h($blocker) ?>">Bring back</button>
+                                        <?php else: ?>
+                                            <form method="POST">
+                                                <input type="hidden" name="action" value="restore_bundle">
+                                                <input type="hidden" name="id" value="<?= h($bundle['id']) ?>">
+                                                <button type="submit" class="secondary outline">Bring back</button>
+                                            </form>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         <?php endif; ?>
     </main>
 

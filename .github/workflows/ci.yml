@@ -91,6 +91,17 @@ jobs:
       - run: bash tests/receivers_test.sh
       - run: bash tests/courier_test.sh
 
+  retire:
+    name: Retire test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite
+      - run: bash tests/retire_test.sh
+
   wording:
     name: Wording and version check
     runs-on: ubuntu-latest
