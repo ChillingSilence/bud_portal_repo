@@ -1,7 +1,7 @@
 name: "BUD Portal"
 description: "BUD - Business Utility Dashboard"
 url: "https://www.chilldivision.co.nz"
-version: "1.0.0"
+version: "1.0.1"
 slug: "bud_addon"
 panel_icon: mdi:truck-delivery
 init: false
@@ -10,8 +10,3 @@ arch:
   - amd64
 ingress: true
 ingress_port: 8420
-
-map:
-  - type: addon_config
-    read_only: False
-    path: /bud_config

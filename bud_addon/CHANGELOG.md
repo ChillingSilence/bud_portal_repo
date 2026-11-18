@@ -1,4 +1,10 @@
 # Changelog
+## [1.0.1] - 2026-11-18
+A small tidy-up for Home Assistant's latest Supervisor. Nothing changes in how BUD works.
+
+### Minor bug fixes and reliability improvements
+- BUD no longer asks for a config folder it never used, which the Supervisor warned about in its log.
+
 ## [1.0.0] - 2026-11-18
 BUD now has the Chill Division look and GRACe's layout in its own violet, prints proper shipping manifests, and handles courier deliveries.
 
