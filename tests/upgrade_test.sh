@@ -166,6 +166,20 @@ $cl_audit = $pdo->query("SELECT COUNT(*) FROM audit_log WHERE table_name IN ('cl
 if ($cl_audit != 0) { echo "FAIL: scheduling audit entries were not purged\n"; $fail = 1; }
 else { echo "  ok: scheduling audit entries purged\n"; }
 
+// 1.0.0: courier deliveries and signed manifests on the transfers kept
+foreach (['delivery_method', 'courier_company', 'tracking_number', 'signed_document', 'signed_document_name'] as $col) {
+    $c = $pdo->query("SELECT COUNT(*) FROM pragma_table_info('chain_of_custody') WHERE name='$col'")->fetchColumn();
+    if ($c != 1) { echo "FAIL: $col not added to chain_of_custody\n"; $fail = 1; }
+}
+$kept = $pdo->query("SELECT COUNT(*) FROM chain_of_custody")->fetchColumn();
+if ($kept != 2) { echo "FAIL: transfers lost adding the 1.0.0 columns\n"; $fail = 1; }
+else { echo "  ok: delivery and signed manifest columns added, transfers kept\n"; }
+
+// 1.0.0: the settings table for your company's details
+$st = $pdo->query("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='settings'")->fetchColumn();
+if ($st != 1) { echo "FAIL: settings table not created\n"; $fail = 1; }
+else { echo "  ok: settings table created\n"; }
+
 exit($fail);
 PHP
 

@@ -1,30 +1,39 @@
 # BUD Portal
 
-## Overview
-The **BUD Portal** is a comprehensive Business Utility Dashboard for stock management, chain of custody tracking, and destruction records.
+BUD (Business Utility Dashboard) keeps track of your stock, chain of custody
+transfers, destroyed stock and Section 29 supply records, inside Home
+Assistant. Made by [Chill Division](https://www.chilldivision.co.nz).
 
-**Features:**
--   **Inventory Control**: Track stock levels and suppliers.
--   **Chain of Custody**: Log controlled substance shipments with digital signatures; cancel mistaken transfers with automatic stock restoration.
--   **Destruction Register**: Permanent, MCA-ready record of destroyed stock with witness signatures and CSV export.
--   **Section 29 Register**: Import monthly pharmacy S29 CSVs (only the s29 record fields are kept), browse/search supplies, and export.
--   **Analytics**: Materials-out by month with product and buyer breakdown charts.
--   **Admin Dashboard**: Undo actions, backup/restore database, and export the full database as JSON for debugging.
+- **Stock.** What's on hand, with every addition and removal in each item's
+  history. Controlled stock only leaves through a transfer or the
+  destruction register.
+- **Chain of custody.** Transfers with a shipping manifest, signed for on
+  screen or, for a courier delivery, on the manifest itself and uploaded. A
+  mistake can be cancelled, and its stock goes back.
+- **Destruction register.** A permanent record of destroyed stock, with a
+  witness signature and a CSV export.
+- **Section 29 register.** Upload the pharmacies' monthly files. Only the
+  Section 29 record fields are kept, and the file is thrown away.
+- **Reports and analytics.** Controlled stock in and out each month for the
+  Medicinal Cannabis Agency, and who's buying what.
 
-## Installation
-1.  Add the **Chill Division Addons** repository to your Home Assistant Addon Store.
-2.  Install the **BUD Portal** addon.
-3.  Start the addon.
-4.  Open the Web UI.
+## Installing
 
-## Configuration
-No manual configuration is required. The addon automatically sets up the database in `/data/bud.db`.
+Home Assistant has called add-ons "apps" since 2026.2, so on an older Home
+Assistant read "Add-ons" wherever these steps say "Apps".
 
-## Versioning
-Home Assistant detects addon updates by comparing the `version` field in `config.yaml`. When releasing a new version:
-1.  Bump the `version` string in `bud_addon/config.yaml` (e.g., `"0.13.4"` to `"0.13.5"`).
-2.  Add a matching entry in `CHANGELOG.md`.
-3.  Open a pull request — `main` is protected and direct commits are not allowed. Once CI passes and the PR is merged, Home Assistant will pick up the new version automatically.
+1. Add this repository to Home Assistant. The quickest way is
+   [this link](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2FChill-Division%2Fbud_portal_repo).
+   Or go to **Settings → Apps**, open the app store, choose
+   **Repositories** from the 3-dot menu and add
+   `https://github.com/Chill-Division/bud_portal_repo`.
+2. Install **BUD Portal**, turn on **Show in sidebar**, and start it.
+3. Open it. BUD sets up its own database, so there's nothing to configure.
 
-## Documentation & Support
-For advanced documentation, developer notes, and troubleshooting (including database schema details), please refer to the **[Project Repository](https://github.com/Chill-Division/bud_portal_repo)**.
+## Your data
+
+Everything BUD records lives in one database in the app's own storage
+(`/data/bud.db`). It survives updates and is included in your Home Assistant
+backups. The Documentation tab has more, and the
+[project repository](https://github.com/Chill-Division/bud_portal_repo) has
+the developer notes.

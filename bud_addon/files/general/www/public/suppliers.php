@@ -3,6 +3,7 @@ require_once 'config.php';
 require_once 'includes/audit.php';
 
 $message = '';
+$message_error = false;
 
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -18,15 +19,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($name) {
             try {
-                $stmt = $pdo->prepare("INSERT INTO suppliers (name, contact_person, email, phone, address, notes) VALUES (?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$name, $contact, $email, $phone, $address, $notes]);
+                $now = bud_now();
+                $stmt = $pdo->prepare("INSERT INTO suppliers (name, contact_person, email, phone, address, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$name, $contact, $email, $phone, $address, $notes, $now, $now]);
                 $id = $pdo->lastInsertId();
 
                 Audit::log($pdo, 'suppliers', $id, 'INSERT', null, $_POST);
-                $message = "Supplier created successfully.";
+                $message = "Added " . $name . " to your suppliers.";
             } catch (Exception $e) {
-                $message = "Error: " . $e->getMessage();
+                $message = "Couldn't add the supplier: " . $e->getMessage();
+                $message_error = true;
             }
+        } else {
+            $message = "A supplier needs a name.";
+            $message_error = true;
         }
     } elseif ($action === 'edit') {
         $id = $_POST['id'] ?? 0;
@@ -41,179 +47,130 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $pdo->prepare("SELECT * FROM suppliers WHERE id = ?");
         $stmt->execute([$id]);
         $old = $stmt->fetch();
+        $stmt = null;
 
         if ($old) {
-            $stmt = $pdo->prepare("UPDATE suppliers SET name=?, contact_person=?, email=?, phone=?, address=?, notes=? WHERE id=?");
-            $stmt->execute([$name, $contact, $email, $phone, $address, $notes, $id]);
+            $stmt = $pdo->prepare("UPDATE suppliers SET name=?, contact_person=?, email=?, phone=?, address=?, notes=?, updated_at=? WHERE id=?");
+            $stmt->execute([$name, $contact, $email, $phone, $address, $notes, bud_now(), $id]);
 
             Audit::log($pdo, 'suppliers', $id, 'UPDATE', $old, $_POST);
-            $message = "Supplier updated successfully.";
+            $message = "Saved the changes to " . $name . ".";
+        } else {
+            $message = "That supplier wasn't found.";
+            $message_error = true;
         }
     }
 }
 
 // Fetch Suppliers
 $suppliers = $pdo->query("SELECT * FROM suppliers WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
+
+$pageTitle = 'Suppliers';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
+    <main class="container">
+        <hgroup class="page-header">
+            <h1>Suppliers</h1>
+            <p>Contact details for the companies you buy from.</p>
+        </hgroup>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>
-        <?= APP_NAME ?> - Suppliers
-    </title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-</head>
+        <?= bud_message($message, $message_error) ?>
 
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <h1>Suppliers</h1>
-        <?php if ($message): ?>
-            <div class="glass-panel"
-                style="margin-bottom: 1rem; color: var(--accent-color); border-color: var(--accent-color);">
-                <?= h($message) ?>
-            </div>
-        <?php endif; ?>
-
-        <!-- Simple Toggle for Add Form -->
-        <button
-            onclick="document.getElementById('addForm').style.display = document.getElementById('addForm').style.display === 'none' ? 'block' : 'none'"
-            class="btn" style="margin-bottom: 1rem;">
-            + Add New Supplier
-        </button>
-
-        <div id="addForm" class="glass-panel" style="display: none; margin-bottom: 2rem;">
-            <h3>New Supplier</h3>
-            <form method="POST">
-                <input type="hidden" name="action" value="create">
-                <div class="grid">
-                    <div>
-                        <label>Name</label>
-                        <input type="text" name="name" required>
-                    </div>
-                    <div>
-                        <label>Contact Person</label>
-                        <input type="text" name="contact">
-                    </div>
-                    <div>
-                        <label>Email</label>
-                        <input type="email" name="email">
-                    </div>
-                    <div>
-                        <label>Phone</label>
-                        <input type="text" name="phone">
-                    </div>
-                </div>
-                <label>Address</label>
-                <textarea name="address" rows="2"></textarea>
-
-                <label>Notes</label>
-                <textarea name="notes" rows="2"></textarea>
-
-                <button type="submit" class="btn">Save Supplier</button>
-            </form>
+        <div class="page-actions">
+            <button type="button" onclick="openSupplier(null)">Add supplier</button>
         </div>
 
-        <div class="glass-panel">
-            <div class="table-responsive">
-                <table style="width: 100%;">
+        <?php if (empty($suppliers)): ?>
+            <p class="empty-note">No suppliers yet.</p>
+        <?php else: ?>
+            <div class="table-wrap">
+                <table class="wide-table">
                     <thead>
                         <tr>
-                            <th>Name</th>
+                            <th>Supplier</th>
                             <th>Contact</th>
-                            <th>Email / Phone</th>
+                            <th>Email and phone</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($suppliers as $s): ?>
                             <tr>
-                                <td><strong>
-                                        <?= h($s['name']) ?>
-                                    </strong></td>
-                                <td>
-                                    <?= h($s['contact_person']) ?>
+                                <td class="cell-long">
+                                    <strong><?= h($s['name']) ?></strong>
+                                    <?php if (!empty($s['address'])): ?><small><?= h($s['address']) ?></small><?php endif; ?>
                                 </td>
+                                <td><?= h($s['contact_person']) ?></td>
                                 <td>
-                                    <?= h($s['email']) ?><br>
-                                    <small>
-                                        <?= h($s['phone']) ?>
-                                    </small>
+                                    <?php if (!empty($s['email'])): ?><a href="mailto:<?= h($s['email']) ?>"><?= h($s['email']) ?></a><?php endif; ?>
+                                    <?php if (!empty($s['phone'])): ?><small><?= h($s['phone']) ?></small><?php endif; ?>
                                 </td>
-                                <td>
-                                    <button onclick='editSupplier(<?= json_encode($s) ?>)' class="btn"
-                                        style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Edit</button>
+                                <td class="row-actions">
+                                    <button type="button" class="secondary outline" data-supplier="<?= h(json_encode($s)) ?>" onclick="openSupplier(JSON.parse(this.dataset.supplier))">Edit</button>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
-        </div>
-    </div>
+        <?php endif; ?>
+    </main>
 
-    <!-- Edit Modal (Simplified as a hidden form that populates) -->
-    <div id="editModal"
-        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; backdrop-filter: blur(5px);">
-        <div class="glass-panel" style="margin: 10% auto; max-width: 600px; position: relative;">
-            <button onclick="document.getElementById('editModal').style.display='none'"
-                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: var(--text-color);">✕</button>
-            <h3>Edit Supplier</h3>
-            <form method="POST">
-                <input type="hidden" name="action" value="edit">
+    <!-- Add or edit a supplier -->
+    <dialog id="supplierDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3 id="supplier_title">Add supplier</h3>
+            </header>
+            <form method="POST" id="supplierForm">
+                <input type="hidden" name="action" id="supplier_action" value="create">
                 <input type="hidden" name="id" id="edit_id">
-
-                <div class="grid">
-                    <div>
-                        <label>Name</label>
+                <div class="form-grid form-grid--2">
+                    <label>Name
                         <input type="text" name="name" id="edit_name" required>
-                    </div>
-                    <div>
-                        <label>Contact Person</label>
+                    </label>
+                    <label>Contact person
                         <input type="text" name="contact" id="edit_contact">
-                    </div>
-                </div>
-
-                <div class="grid">
-                    <div>
-                        <label>Email</label>
+                    </label>
+                    <label>Email
                         <input type="email" name="email" id="edit_email">
-                    </div>
-                    <div>
-                        <label>Phone</label>
+                    </label>
+                    <label>Phone
                         <input type="text" name="phone" id="edit_phone">
-                    </div>
+                    </label>
                 </div>
-
-                <label>Address</label>
-                <textarea name="address" id="edit_address" rows="2"></textarea>
-
-                <label>Notes</label>
-                <textarea name="notes" id="edit_notes" rows="2"></textarea>
-
-                <button type="submit" class="btn">Update Supplier</button>
+                <label>Address
+                    <textarea name="address" id="edit_address" rows="2"></textarea>
+                </label>
+                <label>Notes
+                    <textarea name="notes" id="edit_notes" rows="2"></textarea>
+                </label>
+                <footer>
+                    <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                    <button type="submit" id="supplier_submit">Add supplier</button>
+                </footer>
             </form>
-        </div>
-    </div>
+        </article>
+    </dialog>
 
     <script>
-        function editSupplier(data) {
-            document.getElementById('edit_id').value = data.id;
-            document.getElementById('edit_name').value = data.name;
-            document.getElementById('edit_contact').value = data.contact_person;
-            document.getElementById('edit_email').value = data.email;
-            document.getElementById('edit_phone').value = data.phone;
-            document.getElementById('edit_address').value = data.address;
-            document.getElementById('edit_notes').value = data.notes;
-
-            document.getElementById('editModal').style.display = 'block';
+        // supplier is null for a new one
+        function openSupplier(supplier) {
+            const editing = !!supplier;
+            const s = supplier || {};
+            document.getElementById('supplierForm').reset();
+            document.getElementById('supplier_title').textContent = editing ? 'Edit supplier' : 'Add supplier';
+            document.getElementById('supplier_submit').textContent = editing ? 'Save changes' : 'Add supplier';
+            document.getElementById('supplier_action').value = editing ? 'edit' : 'create';
+            document.getElementById('edit_id').value = s.id ?? '';
+            document.getElementById('edit_name').value = s.name ?? '';
+            document.getElementById('edit_contact').value = s.contact_person ?? '';
+            document.getElementById('edit_email').value = s.email ?? '';
+            document.getElementById('edit_phone').value = s.phone ?? '';
+            document.getElementById('edit_address').value = s.address ?? '';
+            document.getElementById('edit_notes').value = s.notes ?? '';
+            openDialog('supplierDialog');
         }
     </script>
-</body>
-
-</html>
+<?php require 'includes/footer.php'; ?>

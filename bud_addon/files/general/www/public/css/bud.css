@@ -1,0 +1,1555 @@
+/* ==========================================================================
+   BUD design system, layered on top of Pico CSS v2 (css/vendor).
+
+   BUD follows the GRACe Portal: the same app bar with "by Chill Division",
+   section pages of cards, tables, pop-ups and light/dark switch, with the
+   Chill Division brand's pill buttons and Inter. GRACe is green, BUD is
+   violet (#6d28d9). --b-* tokens hold the palette so both themes stay in step.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Inter, the Chill Division font. The app serves it itself, so it works on
+   a Home Assistant box with no internet, and the latin-ext file covers the
+   macrons in te reo Māori.
+   -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/inter/inter-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("../fonts/inter/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* --------------------------------------------------------------------------
+   2. Tokens and Pico overrides
+
+   The theme blocks start with :root on purpose. Pico's light theme uses
+   :root:not([data-theme=dark]), which outranks a bare [data-theme="light"].
+   With :root the two tie, and this file loads after Pico.
+   -------------------------------------------------------------------------- */
+
+:root {
+  --pico-font-family: "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --pico-font-family-sans-serif: var(--pico-font-family);
+  /* Corners from the Chill Division brand guide: 10px for fields, 14px for
+     cards (buttons are pills, in section 6) */
+  --pico-border-radius: 10px;
+  --pico-form-element-spacing-vertical: 0.65rem;
+  --pico-transition: 0.18s ease-in-out;
+  --b-radius-lg: 14px;
+}
+
+:root[data-theme="light"] {
+  --b-bg: #f6f4f8;
+  --b-surface: #ffffff;
+  --b-surface-raised: #fcfcfd;
+  --b-border: #e2dfe7;
+  --b-text: #201d26;
+  --b-text-muted: #625b6b;
+  --b-accent: #7c3aed;
+  --b-accent-strong: #6d28d9;
+  --b-accent-soft: rgba(124, 58, 237, 0.1);
+  --b-danger: #dc2626;
+  --b-danger-soft: rgba(220, 38, 38, 0.08);
+  --b-warning: #b45309;
+  --b-warning-soft: rgba(217, 119, 6, 0.12);
+  --b-info: #2563eb;
+  --b-info-soft: rgba(37, 99, 235, 0.08);
+  /* Small coloured text (badges, the menu, messages) on white or a tint:
+     5.7:1 or more */
+  --b-accent-text: #5b21b6;
+  --b-danger-text: #b91c1c;
+  --b-warning-text: #92400e;
+  --b-info-text: #1d4ed8;
+  --b-danger-button: #b91c1c;
+  --b-danger-button-hover: #991b1b;
+  --b-header-bg: rgba(255, 255, 255, 0.85);
+  --b-shadow: 0 1px 2px rgba(24, 16, 36, 0.06), 0 8px 24px rgba(24, 16, 36, 0.06);
+
+  --pico-background-color: var(--b-bg);
+  --pico-color: var(--b-text);
+  --pico-muted-color: var(--b-text-muted);
+  --pico-muted-border-color: var(--b-border);
+  --pico-card-background-color: var(--b-surface);
+  --pico-card-sectioning-background-color: var(--b-surface-raised);
+  /* Buttons and links use #6d28d9: white on it is 7.1:1, and it's 6.5:1 as a
+     link on the page background */
+  --pico-primary: var(--b-accent-strong);
+  --pico-primary-background: #6d28d9;
+  --pico-primary-border: #6d28d9;
+  --pico-primary-hover: #5b21b6;
+  --pico-primary-hover-background: #5b21b6;
+  --pico-primary-hover-border: #5b21b6;
+  --pico-primary-inverse: #ffffff;
+  --pico-primary-focus: rgba(124, 58, 237, 0.45);
+  --pico-primary-underline: rgba(109, 40, 217, 0.5);
+  /* Second actions (Cancel, Edit, Export...) are the brand's outline button:
+     no fill, a dark edge, violet on hover */
+  --pico-secondary: var(--b-text);
+  --pico-secondary-background: transparent;
+  --pico-secondary-border: var(--b-text);
+  --pico-secondary-inverse: var(--b-text);
+  --pico-secondary-hover: var(--b-accent-strong);
+  --pico-secondary-hover-background: transparent;
+  --pico-secondary-hover-border: var(--b-accent-strong);
+  --pico-secondary-focus: var(--pico-primary-focus);
+  --pico-form-element-background-color: #ffffff;
+  /* Field and tick box edges at 3:1, the brand's minimum for graphics, and a
+     solid ring around the field you're typing in */
+  --pico-form-element-border-color: #8b8792;
+  --pico-form-element-active-border-color: var(--b-accent-strong);
+  --pico-form-element-focus-color: var(--b-accent-strong);
+  --pico-table-border-color: var(--b-border);
+  --pico-table-row-stripped-background-color: rgba(24, 16, 36, 0.025);
+  --pico-modal-overlay-background-color: rgba(17, 15, 21, 0.5);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --b-bg: #110f15;
+  --b-surface: #1a161f;
+  --b-surface-raised: #201d26;
+  --b-border: #2e2936;
+  --b-text: #dfdce5;
+  --b-text-muted: #9a94a4;
+  --b-accent: #a78bfa;
+  --b-accent-strong: #8b5cf6;
+  --b-accent-soft: rgba(167, 139, 250, 0.12);
+  --b-danger: #f87171;
+  --b-danger-soft: rgba(248, 113, 113, 0.12);
+  --b-warning: #fbbf24;
+  --b-warning-soft: rgba(251, 191, 36, 0.14);
+  --b-info: #60a5fa;
+  --b-info-soft: rgba(96, 165, 250, 0.14);
+  /* Small coloured text: the dark theme's own colours already read well */
+  --b-accent-text: var(--b-accent);
+  --b-danger-text: var(--b-danger);
+  --b-warning-text: var(--b-warning);
+  --b-info-text: var(--b-info);
+  --b-danger-button: #b91c1c;
+  --b-danger-button-hover: #991b1b;
+  --b-header-bg: rgba(17, 15, 21, 0.85);
+  --b-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+
+  --pico-background-color: var(--b-bg);
+  --pico-color: var(--b-text);
+  --pico-muted-color: var(--b-text-muted);
+  --pico-muted-border-color: var(--b-border);
+  --pico-card-background-color: var(--b-surface);
+  --pico-card-sectioning-background-color: var(--b-surface-raised);
+  --pico-primary: var(--b-accent);
+  --pico-primary-background: #6d28d9;
+  --pico-primary-border: #6d28d9;
+  --pico-primary-hover: #c4b5fd;
+  --pico-primary-hover-background: #5b21b6;
+  --pico-primary-hover-border: #5b21b6;
+  --pico-primary-inverse: #ffffff;
+  --pico-primary-focus: rgba(167, 139, 250, 0.35);
+  --pico-primary-underline: rgba(167, 139, 250, 0.5);
+  --pico-secondary: var(--b-text);
+  --pico-secondary-background: transparent;
+  --pico-secondary-border: var(--b-text);
+  --pico-secondary-inverse: var(--b-text);
+  --pico-secondary-hover: var(--b-accent);
+  --pico-secondary-hover-background: transparent;
+  --pico-secondary-hover-border: var(--b-accent);
+  --pico-secondary-focus: var(--pico-primary-focus);
+  --pico-form-element-background-color: #151219;
+  --pico-form-element-border-color: #6a6572;
+  --pico-form-element-active-border-color: var(--b-accent-strong);
+  --pico-form-element-focus-color: var(--pico-primary-focus);
+  --pico-table-border-color: var(--b-border);
+  --pico-table-row-stripped-background-color: rgba(255, 255, 255, 0.025);
+  --pico-modal-overlay-background-color: rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+main.container {
+  padding-top: 1.5rem;
+  padding-bottom: 3rem;
+}
+
+h1 {
+  --pico-font-size: 1.65rem;
+  letter-spacing: -0.02em;
+}
+
+h2 {
+  --pico-font-size: 1.2rem;
+  letter-spacing: -0.01em;
+}
+
+h3 {
+  --pico-font-size: 1.05rem;
+}
+
+/* --------------------------------------------------------------------------
+   3. App header and menu
+   -------------------------------------------------------------------------- */
+
+header.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--b-header-bg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--b-border);
+  padding: 0 1rem;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  min-height: 3.5rem;
+  /* Neutralise Pico's nav spacing: it pads each li and gives links matching
+     negative margins, which makes the pills overlap once li padding is gone */
+  --pico-nav-element-spacing-vertical: 0rem;
+  --pico-nav-element-spacing-horizontal: 0rem;
+  --pico-nav-link-spacing-vertical: 0rem;
+  --pico-nav-link-spacing-horizontal: 0rem;
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+  color: var(--b-text);
+}
+
+.nav-brand-home {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--b-text);
+  text-decoration: none;
+}
+
+.nav-brand-home:hover,
+.nav-brand-home:focus {
+  color: var(--b-text);
+  text-decoration: none;
+}
+
+.nav-brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 0.6rem;
+  background: var(--b-accent-soft);
+  color: var(--b-accent);
+}
+
+.nav-brand-mark svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.nav-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.nav-brand-text strong {
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+/* The version number. Clicking it three times opens the admin tools, so it
+   doesn't look or act like a link. */
+.nav-brand-version {
+  font-size: 0.68rem;
+  color: var(--b-accent-text);
+  white-space: nowrap;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* "by Chill Division", the maker's logo beside the BUD name */
+.nav-brand-maker {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-left: 0.2rem;
+  padding-left: 0.8rem;
+  border-left: 1px solid var(--b-border);
+}
+
+.nav-brand-by {
+  font-size: 0.68rem;
+  color: var(--b-text-muted);
+}
+
+/* At least 34px tall, the brand guide's smallest logo on screen */
+.nav-maker-logo {
+  display: block;
+  width: auto;
+  height: max(1.9rem, 34px);
+}
+
+/* The logo is a black wordmark: white on the dark theme */
+[data-theme="dark"] .nav-maker-logo {
+  filter: invert(1);
+}
+
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-menu li {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-menu li a {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.5rem 0.85rem;
+  border-radius: 0.55rem;
+  color: var(--b-text-muted);
+  font-weight: 500;
+  font-size: 0.92rem;
+  text-decoration: none;
+  transition: background var(--pico-transition), color var(--pico-transition);
+}
+
+.nav-menu li a:hover,
+.nav-menu li a:focus {
+  color: var(--b-text);
+  background: var(--b-accent-soft);
+  text-decoration: none;
+}
+
+.nav-menu li a.active {
+  color: var(--b-accent-text);
+  background: var(--b-accent-soft);
+}
+
+.nav-menu li a.theme-toggle {
+  min-width: 2.4rem;
+  min-height: 2.4rem;
+  justify-content: center;
+  padding: 0.5rem;
+  margin: 0;
+  background: transparent;
+  border: 1px solid var(--b-border);
+  color: var(--b-text-muted);
+  box-shadow: none;
+}
+
+.nav-menu li a.theme-toggle:hover,
+.nav-menu li a.theme-toggle:focus {
+  background: var(--b-accent-soft);
+  color: var(--b-accent);
+  border-color: var(--b-accent);
+}
+
+.theme-toggle svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+/* Hamburger (phones and tablets) */
+.nav-toggle {
+  display: none;
+}
+
+.nav-toggle-label {
+  display: none;
+  cursor: pointer;
+}
+
+/* The menu folds into the hamburger below 960px, as GRACe's does: the maker's
+   logo, the brand and all four menu items need about 870px on one line */
+@media (max-width: 960px) {
+  .nav-toggle-label {
+    display: block;
+    position: relative;
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.55rem;
+    margin: 0;
+    color: var(--b-text);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .nav-toggle-label:active {
+    background: var(--b-accent-soft);
+  }
+
+  /* The middle bar is pinned to the exact centre with absolute offsets, and
+     the outer bars hang off it. Some mobile WebViews (the Home Assistant
+     companion app) failed to centre a flex child here. */
+  .hamburger {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 22px;
+    height: 2px;
+    margin: -1px 0 0 -11px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: background 0.25s ease;
+  }
+
+  .hamburger::before,
+  .hamburger::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    width: 22px;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+    transition: transform 0.25s ease, top 0.25s ease;
+  }
+
+  .hamburger::before {
+    top: -7px;
+  }
+
+  .hamburger::after {
+    top: 7px;
+  }
+
+  .nav-toggle:checked + .nav-toggle-label .hamburger {
+    background: transparent;
+  }
+
+  .nav-toggle:checked + .nav-toggle-label .hamburger::before {
+    top: 0;
+    transform: rotate(45deg);
+  }
+
+  .nav-toggle:checked + .nav-toggle-label .hamburger::after {
+    top: 0;
+    transform: rotate(-45deg);
+  }
+
+  .nav-menu {
+    display: none;
+    position: fixed;
+    top: 3.5rem;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.15rem;
+    background: var(--b-bg);
+    border-bottom: 1px solid var(--b-border);
+    box-shadow: var(--b-shadow);
+    padding: 0.75rem 1rem 1rem;
+    margin: 0;
+    max-height: calc(100vh - 3.5rem);
+    overflow-y: auto;
+  }
+
+  .nav-toggle:checked ~ .nav-menu {
+    display: flex;
+  }
+
+  .nav-menu li a {
+    padding: 0.8rem 1rem;
+    font-size: 1rem;
+  }
+
+  .nav-menu li a.theme-toggle {
+    justify-content: flex-start;
+  }
+}
+
+/* On a narrow phone the maker's logo would push the hamburger off the edge */
+@media (max-width: 400px) {
+  .nav-brand-by {
+    display: none;
+  }
+
+  .nav-brand-maker {
+    padding-left: 0.6rem;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   4. Page headers
+   -------------------------------------------------------------------------- */
+
+.page-header {
+  margin-bottom: 1.5rem;
+}
+
+.page-header h1 {
+  margin-bottom: 0.35rem;
+}
+
+.page-header p {
+  color: var(--b-text-muted);
+  font-size: 0.95rem;
+  margin-bottom: 0;
+  max-width: 64ch;
+}
+
+/* "Back to Chain of custody" above a page that belongs to another */
+.page-back {
+  display: inline-block;
+  margin-bottom: 0.6rem;
+  font-size: 0.88rem;
+}
+
+/* The buttons under a page's heading: the main action first */
+.page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-actions > :is(button, [role="button"]) {
+  width: auto;
+  margin: 0;
+}
+
+/* --------------------------------------------------------------------------
+   5. Section pages (Tracking, Reporting, Administration)
+   -------------------------------------------------------------------------- */
+
+.hub-section {
+  margin-bottom: 2.25rem;
+}
+
+.hub-section > h2,
+.section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--b-text-muted);
+  margin-bottom: 0.9rem;
+}
+
+.hub-section > p {
+  color: var(--b-text-muted);
+  font-size: 0.9rem;
+  margin-top: -0.5rem;
+  margin-bottom: 0.9rem;
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+  gap: 0.9rem;
+}
+
+.nav-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 1.1rem;
+  background: var(--b-surface);
+  border: 1px solid var(--b-border);
+  border-radius: var(--b-radius-lg);
+  color: var(--b-text);
+  text-decoration: none;
+  transition: border-color var(--pico-transition), transform var(--pico-transition),
+    box-shadow var(--pico-transition);
+}
+
+a.nav-card:hover,
+a.nav-card:focus {
+  border-color: var(--b-accent);
+  box-shadow: var(--b-shadow);
+  transform: translateY(-2px);
+  text-decoration: none;
+  color: var(--b-text);
+}
+
+.nav-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 0.7rem;
+  background: var(--b-accent-soft);
+  color: var(--b-accent);
+}
+
+.nav-card-icon svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.nav-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.nav-card-body strong {
+  font-size: 0.98rem;
+  line-height: 1.3;
+}
+
+.nav-card-body small {
+  color: var(--b-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------------------------------
+   6. Panels, forms and buttons
+   -------------------------------------------------------------------------- */
+
+article {
+  border: 1px solid var(--b-border);
+  border-radius: var(--b-radius-lg);
+  box-shadow: none;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+article > h2:first-child,
+article > header + h2,
+.panel-head h2 {
+  margin-bottom: 1rem;
+}
+
+/* A panel heading with its buttons on the right (Export CSV, Filter) */
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-head h2 {
+  margin-bottom: 0;
+}
+
+.panel-head p {
+  margin: 0.2rem 0 0;
+  color: var(--b-text-muted);
+  font-size: 0.88rem;
+}
+
+.panel-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.panel-head-actions :is(button, [role="button"]) {
+  width: auto;
+  margin: 0;
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+}
+
+.panel-note {
+  color: var(--b-text-muted);
+  font-size: 0.9rem;
+  margin-top: -0.4rem;
+  margin-bottom: 1rem;
+}
+
+/* A settings form that doesn't need the full width */
+.form-narrow {
+  max-width: 46rem;
+}
+
+/* Fields side by side on a tablet or bigger, stacked on a phone */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  column-gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .form-grid {
+    grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  }
+
+  .form-grid--2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid--3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .form-grid .field--wide {
+    grid-column: 1 / -1;
+  }
+}
+
+.field-hint {
+  display: block;
+  margin-top: -0.6rem;
+  margin-bottom: 1rem;
+  color: var(--b-text-muted);
+  font-size: 0.82rem;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.form-actions > :is(button, [role="button"]) {
+  width: auto;
+  margin: 0;
+}
+
+.form-actions small {
+  color: var(--b-text-muted);
+}
+
+/* Buttons follow the Chill Division brand guide: pill shaped, SemiBold, with
+   a 1.5px edge. The main action is filled BUD violet, a second action is an
+   outline (Pico's .secondary, see the theme blocks). */
+button,
+[type="submit"],
+[type="button"],
+[type="reset"],
+[role="button"],
+[type="file"]::file-selector-button {
+  --pico-border-width: 1.5px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+input,
+select,
+textarea {
+  --pico-border-width: 1.5px;
+}
+
+/* Something that can't be undone (destroy, cancel a transfer, restore) */
+:is(button, [role="button"]).danger {
+  --pico-background-color: var(--b-danger-button);
+  --pico-border-color: var(--b-danger-button);
+  --pico-color: #ffffff;
+  background-color: var(--b-danger-button);
+  border-color: var(--b-danger-button);
+  color: #ffffff;
+}
+
+:is(button, [role="button"]).danger:is(:hover, :focus) {
+  background-color: var(--b-danger-button-hover);
+  border-color: var(--b-danger-button-hover);
+}
+
+:is(button, [role="button"]).danger.outline {
+  background-color: transparent;
+  border-color: var(--b-danger-text);
+  color: var(--b-danger-text);
+}
+
+:is(button, [role="button"]).danger.outline:is(:hover, :focus) {
+  background-color: var(--b-danger-soft);
+}
+
+/* Tick boxes are rounded squares, so they don't look like round options */
+[type="checkbox"]:not([role="switch"]) {
+  border-radius: 6px;
+}
+
+/* A choice between two or three options, side by side (Delivery, How it
+   was signed for) */
+fieldset.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  margin: 0 0 var(--pico-spacing);
+  padding: 0;
+  border: 0;
+}
+
+fieldset.choice-row legend {
+  width: 100%;
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+}
+
+fieldset.choice-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+fieldset.choice-row input {
+  margin: 0;
+}
+
+/* A tick box with its label on one line */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: var(--pico-spacing);
+}
+
+.check-row input {
+  margin: 0;
+}
+
+/* Bigger touch targets for mobile */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea,
+  button,
+  [role="button"] {
+    font-size: 1rem;
+  }
+}
+
+/* Signature pads stay white in both themes: the signature is drawn in black */
+.signature-pad {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-bottom: 0.5rem;
+  border: 2px dashed var(--pico-form-element-border-color);
+  border-radius: var(--pico-border-radius);
+  background: #ffffff;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+/* A photo of a signed manifest: the whole page, small enough to see the
+   buttons under it (click it for full size) */
+.document-preview {
+  max-height: 24rem;
+  width: auto;
+  margin-bottom: 0.75rem;
+}
+
+.signature-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--b-border);
+  border-radius: var(--pico-border-radius);
+  background: #ffffff;
+}
+
+/* Rows of item fields that repeat (Chain of custody items, bundle parts) */
+.repeat-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0 0.75rem;
+  align-items: start;
+}
+
+@media (min-width: 768px) {
+  .repeat-row {
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr) minmax(0, 0.8fr) auto;
+  }
+
+  .repeat-row--2 {
+    grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) auto;
+  }
+}
+
+.repeat-row .remove-row {
+  width: auto;
+  margin: 0 0 var(--pico-spacing);
+  padding: 0.55rem 0.9rem;
+}
+
+.add-row {
+  width: auto;
+  margin-bottom: 1.25rem;
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+}
+
+/* --------------------------------------------------------------------------
+   7. Tables
+   -------------------------------------------------------------------------- */
+
+.table-wrap {
+  margin: 0 0 1.5rem;
+  border: 1px solid var(--b-border);
+  border-radius: var(--b-radius-lg);
+  background: var(--b-surface);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+article .table-wrap:last-child {
+  margin-bottom: 0;
+}
+
+.table-wrap table {
+  margin-bottom: 0;
+  --pico-background-color: transparent;
+}
+
+.table-wrap th {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--b-text-muted);
+  white-space: nowrap;
+  background: var(--b-surface-raised);
+}
+
+.table-wrap th,
+.table-wrap td {
+  padding: 0.7rem 0.85rem;
+}
+
+.table-wrap tbody tr:nth-child(odd) td {
+  background: var(--pico-table-row-stripped-background-color);
+}
+
+.table-wrap tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table-wrap tfoot td,
+.table-wrap tr.total-row td {
+  font-weight: 700;
+  background: var(--b-surface-raised);
+}
+
+/* Stock at or under its reorder level */
+.table-wrap tr.is-low td {
+  background: var(--b-danger-soft);
+}
+
+.table-wrap td small,
+.cell-sub {
+  display: block;
+  color: var(--b-text-muted);
+  font-size: 0.82rem;
+}
+
+/* The buttons on a table row: the column is only as wide as its buttons */
+.table-wrap .row-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* Rows with several buttons (Chain of custody, Stock): on a narrower screen
+   they wrap onto a second line instead of running off the side */
+.table-wrap .row-actions--wrap {
+  width: auto;
+  min-width: 13rem;
+  white-space: normal;
+}
+
+.table-wrap .row-actions form {
+  display: inline;
+  margin: 0;
+}
+
+.table-wrap .row-actions :is(button, [role="button"]) {
+  width: auto;
+  margin: 0.1rem 0.15rem 0.1rem 0;
+  padding: 0.28rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* Number columns: right-aligned with tabular figures, so quantities line up.
+   Only cells marked .num, since Inter's tabular setting also widens the
+   hyphens and colons in dates. */
+th.num,
+td.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* A name column that shouldn't break a word per line ("Harbour / Pharmacy")
+   when a row's buttons take most of the width */
+.table-wrap td.cell-name {
+  min-width: 11rem;
+}
+
+/* Short values (dates, SKUs, quantities, badges) stay on one line, so a row
+   with a few buttons doesn't squeeze "1,150 units" onto two */
+.table-wrap td.num,
+.table-wrap :is(td, th).nowrap {
+  white-space: nowrap;
+}
+
+td.num--in {
+  color: var(--b-accent-text);
+}
+
+td.num--out {
+  color: var(--b-danger-text);
+}
+
+/* On a phone, or any screen under 768px wide, a table with more columns than
+   fit scrolls sideways. A wide-table also keeps each value on one line, so a
+   date doesn't break over three lines. Its headers can wrap instead. A
+   cell-long cell, like an address or a note, wraps at a readable width. */
+@media (max-width: 767.98px) {
+  .table-wrap .wide-table th {
+    white-space: normal;
+  }
+
+  .table-wrap .wide-table td {
+    white-space: nowrap;
+  }
+
+  .table-wrap .wide-table td[colspan],
+  .table-wrap .wide-table td.cell-long {
+    white-space: normal;
+  }
+
+  .table-wrap .wide-table td.cell-long {
+    min-width: 15rem;
+  }
+}
+
+.empty-note {
+  color: var(--b-text-muted);
+  margin-bottom: 0;
+}
+
+/* --------------------------------------------------------------------------
+   8. Badges (transfer status, controlled stock, low stock)
+   -------------------------------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  background: var(--b-accent-soft);
+  color: var(--b-accent-text);
+}
+
+/* Badges that wrap onto a second line line up on the left */
+.badge {
+  margin-right: 0.25rem;
+}
+
+.badge:last-child {
+  margin-right: 0;
+}
+
+.badge--progress {
+  background: var(--b-info-soft);
+  color: var(--b-info-text);
+}
+
+.badge--todo {
+  background: var(--b-warning-soft);
+  color: var(--b-warning-text);
+}
+
+.badge--danger {
+  background: var(--b-danger-soft);
+  color: var(--b-danger-text);
+}
+
+.badge--neutral {
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--b-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   9. Messages, callouts and toasts
+   -------------------------------------------------------------------------- */
+
+.status-message {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  border-radius: var(--pico-border-radius);
+  border: 1px solid transparent;
+  font-size: 0.92rem;
+}
+
+.status-message.success {
+  background: var(--b-accent-soft);
+  border-color: var(--b-accent-strong);
+  color: var(--b-accent-text);
+}
+
+.status-message.error {
+  background: var(--b-danger-soft);
+  border-color: var(--b-danger);
+  color: var(--b-danger-text);
+}
+
+/* Brand callouts: the coloured edge says how serious it is */
+.callout {
+  padding: 0.8rem 1rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--b-border);
+  border-left-width: 4px;
+  border-radius: var(--pico-border-radius);
+  background: var(--b-surface-raised);
+  font-size: 0.9rem;
+}
+
+.callout--note {
+  border-left-color: var(--b-accent);
+}
+
+.callout--warning {
+  border-color: var(--b-warning);
+  background: var(--b-warning-soft);
+}
+
+.callout--danger {
+  border-color: var(--b-danger);
+  background: var(--b-danger-soft);
+}
+
+.callout > :last-child {
+  margin-bottom: 0;
+}
+
+#toastContainer {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  z-index: 2000;
+  width: min(92vw, 26rem);
+  pointer-events: none;
+}
+
+.toast {
+  width: 100%;
+  padding: 0.8rem 1.1rem;
+  border-radius: var(--pico-border-radius);
+  border: 1px solid var(--b-border);
+  background: var(--b-surface-raised);
+  color: var(--b-text);
+  font-size: 0.92rem;
+  box-shadow: var(--b-shadow);
+  opacity: 0;
+  transform: translateY(0.75rem);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+  pointer-events: auto;
+}
+
+.toast--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast--error {
+  border-color: var(--b-danger);
+  box-shadow: var(--b-shadow), inset 4px 0 0 var(--b-danger);
+}
+
+/* --------------------------------------------------------------------------
+   10. Pop-ups (Pico's <dialog>)
+   -------------------------------------------------------------------------- */
+
+/* A pop-up takes focus itself when it opens, so the keyboard starts inside
+   it. The box doesn't need a focus ring around it. */
+dialog.bud-modal:focus,
+dialog.bud-modal:focus-visible {
+  outline: none;
+}
+
+.bud-modal article {
+  width: calc(100vw - 2rem);
+  max-width: 30rem;
+  margin: 1rem;
+  padding: 1.5rem;
+  border: 1px solid var(--b-border);
+  border-radius: var(--b-radius-lg);
+}
+
+.bud-modal--wide article {
+  max-width: 46rem;
+}
+
+.bud-modal article > header {
+  margin: -1.5rem -1.5rem 1.25rem;
+  padding: 1.1rem 1.5rem;
+  border-bottom: 1px solid var(--b-border);
+  background: var(--b-surface-raised);
+}
+
+.bud-modal article > header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.bud-modal p {
+  font-size: 0.92rem;
+}
+
+.bud-modal .modal-text {
+  color: var(--b-text-muted);
+}
+
+.bud-modal-list {
+  max-height: 12rem;
+  overflow-y: auto;
+  margin: 0.75rem 0 1rem;
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  border: 1px solid var(--b-border);
+  border-radius: var(--pico-border-radius);
+  background: var(--b-surface-raised);
+  font-size: 0.88rem;
+}
+
+.bud-modal-list li {
+  margin-bottom: 0.2rem;
+}
+
+/* What a pop-up is about: the transfer, the stock item */
+.modal-summary {
+  margin-bottom: 1.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--b-border);
+  border-radius: var(--pico-border-radius);
+  background: var(--b-surface-raised);
+  font-size: 0.9rem;
+}
+
+.modal-summary dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 1rem;
+  margin: 0;
+}
+
+.modal-summary dt {
+  color: var(--b-text-muted);
+}
+
+.modal-summary dd {
+  margin: 0;
+}
+
+.modal-summary details {
+  margin-top: 0.75rem;
+}
+
+.modal-summary pre {
+  max-height: 16rem;
+  margin: 0.5rem 0 0;
+  padding: 0.75rem;
+  overflow: auto;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.modal-summary ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.modal-summary ul li {
+  list-style: disc;
+  margin-bottom: 0.1rem;
+}
+
+/* When the buttons don't fit side by side (a long label, or a phone), they
+   stack with the main action on top */
+.bud-modal article footer {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin: 1.25rem -1.5rem -1.5rem;
+  padding: 1rem 1.5rem;
+}
+
+.bud-modal article footer :is(button, [role="button"]) {
+  width: auto;
+  margin-bottom: 0;
+}
+
+.bud-modal .modal-warning {
+  margin: 0.25rem 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--b-warning);
+  border-left-width: 4px;
+  border-radius: var(--pico-border-radius);
+  background: var(--b-warning-soft);
+  color: var(--b-text);
+  font-size: 0.9rem;
+}
+
+/* The receiver's name on the review step, big enough to spot a typo */
+.bud-modal .review-name {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+
+/* --------------------------------------------------------------------------
+   11. Dashboard number cards
+   -------------------------------------------------------------------------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 2.25rem;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 1rem 1.25rem;
+  background: var(--b-surface);
+  border: 1px solid var(--b-border);
+  border-radius: var(--b-radius-lg);
+}
+
+a.stat-card {
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--pico-transition), transform var(--pico-transition),
+    box-shadow var(--pico-transition);
+}
+
+a.stat-card:hover,
+a.stat-card:focus {
+  border-color: var(--b-accent);
+  box-shadow: var(--b-shadow);
+  transform: translateY(-2px);
+  text-decoration: none;
+}
+
+.stat-card .stat-value {
+  font-size: 1.6rem;
+  font-weight: 800; /* ExtraBold, the brand guide's weight for big numbers */
+  letter-spacing: -0.02em;
+  color: var(--b-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-card .stat-label {
+  font-size: 0.8rem;
+  color: var(--b-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* A to-do on the Dashboard (transfers to invoice, low stock) */
+.todo-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  margin-bottom: 1rem;
+  background: var(--b-surface);
+  border: 1px solid var(--b-warning);
+  border-left-width: 4px;
+  border-radius: var(--b-radius-lg);
+}
+
+.todo-banner .nav-card-icon {
+  background: var(--b-warning-soft);
+  color: var(--b-warning-text);
+}
+
+.todo-banner-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.todo-banner-body strong {
+  font-size: 0.98rem;
+  line-height: 1.3;
+}
+
+.todo-banner-body small {
+  color: var(--b-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.todo-banner [role="button"] {
+  width: auto;
+  margin: 0;
+  padding: 0.45rem 1rem;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .todo-banner {
+    flex-wrap: wrap;
+  }
+
+  .todo-banner [role="button"] {
+    margin-left: auto;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   12. Filters, tabs and charts
+   -------------------------------------------------------------------------- */
+
+/* A row of filters with its buttons at the end */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.toolbar label {
+  margin-bottom: 0;
+  font-size: 0.85rem;
+  color: var(--b-text-muted);
+}
+
+.toolbar :is(input, select) {
+  margin: 0.25rem 0 0;
+}
+
+.toolbar > :is(button, [role="button"]) {
+  width: auto;
+  margin: 0;
+}
+
+.panel-head .toolbar {
+  margin-bottom: 0;
+}
+
+.toolbar .toolbar-grow {
+  flex: 1 1 14rem;
+}
+
+/* Tabs that switch a panel's table (Top orders) */
+.tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.tab-row button {
+  width: auto;
+  margin: 0;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+}
+
+.chart-box {
+  position: relative;
+  height: 22rem;
+}
+
+.chart-box--pie {
+  height: 20rem;
+}
+
+/* --------------------------------------------------------------------------
+   13. Small screens
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+  main.container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  article {
+    padding: 1.1rem;
+  }
+
+  h1 {
+    --pico-font-size: 1.4rem;
+  }
+
+  .bud-modal article {
+    padding: 1.1rem;
+  }
+
+  .bud-modal article > header {
+    margin: -1.1rem -1.1rem 1rem;
+    padding: 1rem 1.1rem;
+  }
+
+  .bud-modal article footer {
+    margin: 1rem -1.1rem -1.1rem;
+    padding: 0.9rem 1.1rem;
+  }
+}
+
+/* A small outline button inside a form (Clear signature) */
+:is(button, [role="button"]).btn-small {
+  width: auto;
+  padding: 0.35rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+/* "View signature" under a witness's name in the destruction register */
+.btn-small.witness-sig {
+  white-space: nowrap;
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.field-note {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}

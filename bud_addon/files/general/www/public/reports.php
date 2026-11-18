@@ -1,9 +1,16 @@
 <?php
 require_once 'config.php';
+require_once 'includes/stock.php';
 
 $message = '';
 $selected_month = $_GET['month'] ?? date('Y-m');
 $selected_year = $_GET['year'] ?? date('Y');
+if (!preg_match('/^\d{4}-\d{2}$/', $selected_month)) {
+    $selected_month = date('Y-m');
+}
+if (!preg_match('/^\d{4}$/', (string) $selected_year)) {
+    $selected_year = date('Y');
+}
 
 $start_date = "$selected_month-01";
 $end_date = date("Y-m-t", strtotime($start_date));
@@ -190,6 +197,10 @@ foreach ($logs_in as $log) {
     if (!isset($controlled_id_set[$record_id]))
         continue;
 
+    // Stock a cancelled transfer put back wasn't received from anywhere
+    if (bud_is_cancel_restore($new))
+        continue;
+
     $qty_in = 0;
     if ($log['action'] === 'INSERT') {
         $qty_in = floatval($new['quantity'] ?? 0);
@@ -253,6 +264,8 @@ for ($m = 1; $m <= 12; $m++) {
             continue;
         $nv = json_decode($r['new_values'], true);
         $ov = json_decode($r['old_values'], true);
+        if (bud_is_cancel_restore($nv))
+            continue;
         if ($r['action'] === 'INSERT') {
             $total_in += floatval($nv['quantity'] ?? 0);
         } elseif ($r['action'] === 'UPDATE') {
@@ -265,170 +278,158 @@ for ($m = 1; $m <= 12; $m++) {
 
     $yearly_stats[$m] = ['in' => $total_in, 'out' => $total_out];
 }
+
+$month_label = bud_month_label($selected_month);
+$year_in = 0;
+$year_out = 0;
+foreach ($yearly_stats as $stats) {
+    $year_in += $stats['in'];
+    $year_out += $stats['out'];
+}
+
+// "+120", "-30" or "0"
+function signed_qty($value, $sign)
+{
+    return $value == 0 ? '0' : $sign . bud_qty($value);
+}
+
+$pageTitle = 'Reports';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
+    <main class="container">
+        <hgroup class="page-header">
+            <h1>Reports</h1>
+            <p>Controlled stock in and out each month, for the Medicinal Cannabis Agency. A bundle counts as the controlled items in it.</p>
+        </hgroup>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= APP_NAME ?> - Reports</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-</head>
+        <form method="GET" class="toolbar">
+            <label>Month
+                <input type="month" name="month" value="<?= h($selected_month) ?>">
+            </label>
+            <label>Overview year
+                <select name="year">
+                    <?php
+                    $curr_y = (int) date('Y');
+                    for ($y = $curr_y; $y >= $curr_y - 2; $y--): ?>
+                        <option value="<?= $y ?>"<?= $y == $selected_year ? ' selected' : '' ?>><?= $y ?></option>
+                    <?php endfor; ?>
+                </select>
+            </label>
+            <button type="submit">Show</button>
+        </form>
 
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <h1>Reports</h1>
-
-        <!-- Controls -->
-        <div class="glass-panel" style="margin-bottom: 2rem;">
-            <form method="GET" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
+        <!-- Materials in -->
+        <section class="hub-section">
+            <div class="panel-head">
                 <div>
-                    <label>Report Month</label>
-                    <input type="month" name="month" value="<?= h($selected_month) ?>">
+                    <h2>Materials in, <?= h($month_label) ?></h2>
+                    <p>Controlled stock received into stock.</p>
                 </div>
-                <div>
-                    <label>Yearly Overview</label>
-                    <select name="year">
-                        <?php
-                        $curr_y = date('Y');
-                        for ($y = $curr_y; $y >= $curr_y - 2; $y--) {
-                            $sel = $y == $selected_year ? 'selected' : '';
-                            echo "<option value='$y' $sel>$y</option>";
-                        }
-                        ?>
-                    </select>
-                </div>
-                <button type="submit" class="btn">Update View</button>
-            </form>
-        </div>
-
-        <p style="color: var(--text-muted, #aaa); font-size: 0.85rem; margin-bottom: 1.5rem; margin-top: -1rem;">
-            ⚠️ All figures show <strong>controlled substances only</strong>. Bundle quantities are expanded to their individual controlled components.
-        </p>
-
-        <!-- Materials IN -->
-        <div class="glass-panel" style="margin-bottom: 2rem;">
-            <h3>📥 Materials In (<?= date('F Y', strtotime($selected_month)) ?>)</h3>
-            <p><small>Controlled substances received into stock</small></p>
-            <?php if (empty($materials_in)): ?>
-                <p>No incoming controlled materials recorded.</p>
-            <?php else: ?>
-                <table style="font-size: 0.9rem;">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Item</th>
-                            <th>Qty</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($materials_in as $in): ?>
-                            <tr>
-                                <td><?= h($in['date']) ?></td>
-                                <td><?= h($in['name']) ?> <small>(<?= h($in['sku']) ?>)</small></td>
-                                <td class="text-success">+<?= h($in['qty']) ?> <?= h($in['unit']) ?></td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-        </div>
-
-        <!-- Materials OUT (MCA format) -->
-        <div class="glass-panel" style="margin-bottom: 2rem;">
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
-                <button onclick="exportMcaCsv()" class="btn btn-outline-primary"
-                    style="font-size: 0.85rem;">
-                    ⬇ Export CSV
-                </button>
             </div>
-            <h3 style="margin:0 0 0.5rem;">📤 Materials Out (<?= date('F Y', strtotime($selected_month)) ?>)</h3>
-            <?php if (empty($mca_rows)): ?>
-                <p>No completed controlled substance transfers recorded for this month.</p>
+            <?php if (empty($materials_in)): ?>
+                <p class="empty-note">No controlled stock came in this month.</p>
             <?php else: ?>
-                <div class="table-responsive">
-                    <table id="mca-table" style="font-size: 0.9rem;">
+                <div class="table-wrap">
+                    <table class="wide-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
-                                <th>Destination</th>
-                                <th>Address</th>
-                                <th>Product</th>
-                                <th>Qty</th>
+                                <th>Item</th>
+                                <th class="num">Quantity</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($mca_rows as $row): ?>
+                            <?php foreach ($materials_in as $in): ?>
                                 <tr>
-                                    <td><?= h($row['date']) ?></td>
-                                    <td><?= h($row['pharmacy']) ?></td>
-                                    <td><?= h($row['address']) ?></td>
-                                    <td><?= h($row['product']) ?></td>
-                                    <td class="text-danger">-<?= h($row['qty']) ?></td>
+                                    <td class="nowrap"><?= h(bud_datetime($in['date'])) ?></td>
+                                    <td class="cell-long"><?= h($in['name']) ?> <small><?= h($in['sku']) ?></small></td>
+                                    <td class="num num--in">+<?= h(bud_qty($in['qty'])) ?> <?= h($in['unit']) ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
             <?php endif; ?>
-        </div>
+        </section>
 
-        <!-- 12-Month Overview -->
-        <div class="glass-panel" style="margin-top: 2rem;">
-            <h3>📊 12-Month Overview (<?= h($selected_year) ?>) — Controlled Substances</h3>
-            <table style="text-align: center;">
-                <thead>
-                    <tr>
-                        <th>Month</th>
-                        <th>Total In</th>
-                        <th>Total Out</th>
-                        <th>Net Flow</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($yearly_stats as $m => $stats): ?>
+        <!-- Materials out, in the Agency's format -->
+        <section class="hub-section">
+            <div class="panel-head">
+                <div>
+                    <h2>Materials out, <?= h($month_label) ?></h2>
+                    <p>Completed chain of custody transfers. Export the CSV for the Agency's monthly report.</p>
+                </div>
+                <?php if (!empty($mca_rows)): ?>
+                    <div class="panel-head-actions">
+                        <button type="button" class="secondary outline" onclick="exportTableCsv('mca-table', 'MCA_Report_<?= h($selected_month) ?>.csv')">Export CSV</button>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php if (empty($mca_rows)): ?>
+                <p class="empty-note">No completed transfers of controlled stock this month.</p>
+            <?php else: ?>
+                <div class="table-wrap">
+                    <?php // data-csv keeps the export exactly as BUD 0.19 wrote it ?>
+                    <table id="mca-table" class="wide-table">
+                        <thead>
+                            <tr>
+                                <th data-csv="Date">Date</th>
+                                <th data-csv="Destination">Destination</th>
+                                <th data-csv="Address">Address</th>
+                                <th data-csv="Product">Product</th>
+                                <th class="num" data-csv="Qty">Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($mca_rows as $row): ?>
+                                <tr>
+                                    <td class="nowrap" data-csv="<?= h($row['date']) ?>"><?= h(bud_date($row['date'])) ?></td>
+                                    <td><?= h($row['pharmacy']) ?></td>
+                                    <td class="cell-long"><?= h($row['address']) ?></td>
+                                    <td class="cell-long"><?= h($row['product']) ?></td>
+                                    <td class="num num--out" data-csv="-<?= h((string) $row['qty']) ?>"><?= BUD_MINUS ?><?= h(bud_qty($row['qty'])) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </section>
+
+        <!-- 12-month overview -->
+        <section class="hub-section">
+            <h2>12-month overview, <?= h($selected_year) ?></h2>
+            <div class="table-wrap">
+                <table class="wide-table">
+                    <thead>
                         <tr>
-                            <td style="text-align: left;"><strong><?= date('F', mktime(0, 0, 0, $m, 1)) ?></strong></td>
-                            <td style="color: var(--accent-color);">+<?= h($stats['in']) ?></td>
-                            <td style="color: #ef4444;">-<?= h($stats['out']) ?></td>
-                            <td>
-                                <?php
-                                $net = $stats['in'] - $stats['out'];
-                                echo ($net > 0 ? '+' : '') . h($net);
-                                ?>
-                            </td>
+                            <th>Month</th>
+                            <th class="num">Total in</th>
+                            <th class="num">Total out</th>
+                            <th class="num">Net</th>
                         </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-    </div>
-
-    <script>
-        function exportMcaCsv() {
-            const table = document.getElementById('mca-table');
-            if (!table) { alert('No data to export.'); return; }
-
-            let csv = [];
-            for (const row of table.rows) {
-                const cols = Array.from(row.cells).map(c => '"' + c.innerText.replace(/"/g, '""') + '"');
-                csv.push(cols.join(','));
-            }
-
-            const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'MCA_Report_<?= $selected_month ?>.csv';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-    </script>
-</body>
-
-</html>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($yearly_stats as $m => $stats):
+                            $net = $stats['in'] - $stats['out']; ?>
+                            <tr>
+                                <td><?= date('F', mktime(0, 0, 0, $m, 1)) ?></td>
+                                <td class="num<?= $stats['in'] > 0 ? ' num--in' : '' ?>"><?= h(signed_qty($stats['in'], '+')) ?></td>
+                                <td class="num<?= $stats['out'] > 0 ? ' num--out' : '' ?>"><?= h(signed_qty($stats['out'], BUD_MINUS)) ?></td>
+                                <td class="num"><?= h($net > 0 ? '+' . bud_qty($net) : bud_qty($net)) ?></td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td>Year</td>
+                            <td class="num"><?= h(signed_qty($year_in, '+')) ?></td>
+                            <td class="num"><?= h(signed_qty($year_out, BUD_MINUS)) ?></td>
+                            <td class="num"><?= h(($year_in - $year_out) > 0 ? '+' . bud_qty($year_in - $year_out) : bud_qty($year_in - $year_out)) ?></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+    </main>
+<?php require 'includes/footer.php'; ?>

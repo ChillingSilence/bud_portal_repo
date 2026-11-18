@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS chain_of_custody (
   invoiced_at DATETIME,
   cancelled_at DATETIME,
   cancel_reason TEXT,
+  delivery_method TEXT,
+  courier_company TEXT,
+  tracking_number TEXT,
+  signed_document TEXT,
+  signed_document_name TEXT,
   FOREIGN KEY (receiver_id) REFERENCES verified_receivers(id) ON DELETE SET NULL
 );
 
@@ -164,7 +169,15 @@ CREATE TABLE IF NOT EXISTS verified_receivers (
   phone TEXT,
   notes TEXT,
   is_active BOOLEAN DEFAULT 1,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  licence_number TEXT
+);
+
+-- 16. Settings (1.0.0: your company's details for the shipping manifest)
+CREATE TABLE IF NOT EXISTS settings (
+  name TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at DATETIME
 );
 
 COMMIT;

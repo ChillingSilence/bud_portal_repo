@@ -6,8 +6,8 @@ $item_id = $_GET['id'] ?? 0;
 $stmt = $pdo->prepare("
     SELECT old_values, new_values, timestamp, changed_by 
     FROM audit_log 
-    WHERE table_name = 'stock_items' AND record_id = ? 
-    ORDER BY timestamp DESC 
+    WHERE table_name = 'stock_items' AND record_id = ?
+    ORDER BY id DESC
     LIMIT 20
 ");
 $stmt->execute([$item_id]);

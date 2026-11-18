@@ -166,18 +166,18 @@ nhi_hits=$(q "SELECT COUNT(*) FROM s29_supplies WHERE prescriber LIKE '%ZZZ%' OR
 [ "$(q "SELECT CAST(SUM(quantity) AS INTEGER) FROM s29_supplies;")" = "61" ] \
     && echo "  ok: quantities stored (total 61)" || { echo "FAIL: quantity total" >&2; fail=1; }
 
-# Top Orders panel: renders for the all-months view, ranked by total quantity
+# Top orders panel: renders for the all-months view, ranked by total quantity
 # (top patient across the synthetic data is Carol with 20 units in one order)
 page=$(curl -fsS "http://127.0.0.1:$PORT/s29.php?month=")
-grep -q "Top Orders" <<< "$page" || { echo "FAIL: Top Orders panel missing" >&2; fail=1; }
+grep -q "Top orders" <<< "$page" || { echo "FAIL: Top orders panel missing" >&2; fail=1; }
 first_patient=$(grep -o 'Testpatient, [A-Za-z]*' <<< "$page" | head -1)
 [ "$first_patient" = "Testpatient, Carol" ] \
-    && echo "  ok: Top Orders ranks by total quantity (Carol first)" \
+    && echo "  ok: Top orders ranks by total quantity (Carol first)" \
     || { echo "FAIL: expected Testpatient, Carol ranked first, got '$first_patient'" >&2; fail=1; }
 tabs_ok=1
 grep -q 'id="top-prescribers"' <<< "$page" || { echo "FAIL: prescriber tab missing" >&2; fail=1; tabs_ok=0; }
 grep -q 'id="top-places"' <<< "$page" || { echo "FAIL: places tab missing" >&2; fail=1; tabs_ok=0; }
-[ "$tabs_ok" -eq 1 ] && echo "  ok: Top Orders tabs present"
+[ "$tabs_ok" -eq 1 ] && echo "  ok: Top orders tabs present"
 
 # Delete import batch 1 — its 3 rows cascade away, other batches untouched
 import1=$(q "SELECT MIN(id) FROM s29_imports;")

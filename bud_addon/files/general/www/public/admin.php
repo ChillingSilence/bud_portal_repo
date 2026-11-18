@@ -3,6 +3,7 @@ require_once 'config.php';
 require_once 'includes/audit.php';
 
 $message = '';
+$message_error = false;
 
 // Handle Actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -12,11 +13,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $log_id = $_POST['log_id'] ?? 0;
         try {
             Audit::undo($pdo, $log_id);
-            $message = "Action undone successfully.";
+            $message = "Undid the last action.";
             // Audit::undo writes the reversal to the audit log itself
             // (changed_by = 'UNDO'), so the chain stays complete.
         } catch (Exception $e) {
-            $message = "Error undoing action: " . $e->getMessage();
+            $message = "Couldn't undo it: " . $e->getMessage();
+            $message_error = true;
         }
     } elseif ($action === 'restore') {
         if (isset($_FILES['db_file']) && $_FILES['db_file']['error'] === UPLOAD_ERR_OK) {
@@ -36,17 +38,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 gc_collect_cycles(); // Force cleanup
 
                 if (copy($uploadPath, $targetPath)) {
-                    $message = "Database restored successfully. PLEASE REFRESH.";
+                    $message = "Restored the database. The page reloads in a moment.";
                     // Reconnect
                     header("Refresh: 2");
                 } else {
-                    $message = "Failed to copy database file. Check permissions.";
+                    $message = "Couldn't copy the database file into place. Check the app's storage permissions.";
+                    $message_error = true;
                 }
             } else {
-                $message = "Invalid SQLite file uploaded.";
+                $message = "That file isn't a BUD database (an SQLite file).";
+                $message_error = true;
             }
         } else {
-            $message = "Upload failed.";
+            $message = "The upload didn't work. Choose the .db file and try again.";
+            $message_error = true;
         }
     }
 } elseif (isset($_GET['action']) && $_GET['action'] === 'download') {
@@ -62,7 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         readfile($file);
         exit;
     } else {
-        $message = "Database file not found.";
+        $message = "The database file wasn't found.";
+        $message_error = true;
     }
 } elseif (isset($_GET['action']) && $_GET['action'] === 'export_json') {
     // Export entire database as JSON for debugging
@@ -77,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'products',
         's29_imports',
         's29_supplies',
+        'settings',
     ];
 
     $export = ['exported_at' => date('Y-m-d H:i:s T'), 'tables' => []];
@@ -198,148 +205,126 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'verif
             ];
         }
     } catch (Exception $e) {
-        $message = "Verify error: " . $e->getMessage();
+        $message = "The check didn't finish: " . $e->getMessage();
+        $message_error = true;
     }
 }
 
 // Fetch Last Action
 $last_action = $pdo->query("SELECT * FROM audit_log ORDER BY id DESC LIMIT 1")->fetch();
 
+$pageTitle = 'Admin tools';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
+    <main class="container">
+        <hgroup class="page-header">
+            <h1>Admin tools</h1>
+            <p>For fixing a mistake or moving BUD's data. Home Assistant's own backups already include everything, so you'll rarely need these.</p>
+        </hgroup>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>
-        <?= APP_NAME ?> - Admin
-    </title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <style>
-        .danger-zone {
-            border: 1px solid #ef4444;
-            background: rgba(239, 68, 68, 0.1);
-        }
-    </style>
-</head>
+        <?= bud_message($message, $message_error) ?>
 
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <h1>Admin Dashboard</h1>
-
-        <?php if ($message): ?>
-            <div class="glass-panel" style="margin-bottom: 1rem; border-color: var(--accent-color);">
-                <?= h($message) ?>
-            </div>
-        <?php endif; ?>
-
-        <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 2rem;">
-            <!-- Undo Section -->
-            <div class="glass-panel">
-                <h3>⏮️ Last Action</h3>
+        <div class="grid">
+            <!-- Undo -->
+            <article>
+                <h2>Last action</h2>
                 <?php if ($last_action): ?>
-                    <div style="background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem;">
-                        <p><strong>Action:</strong>
-                            <?= h($last_action['action']) ?> on
-                            <?= h($last_action['table_name']) ?>
-                        </p>
-                        <p><small>Time:
-                                <?= h($last_action['timestamp']) ?>
-                            </small></p>
+                    <div class="modal-summary">
+                        <dl>
+                            <dt>Action</dt><dd><?= h($last_action['action']) ?> on <?= h($last_action['table_name']) ?></dd>
+                            <dt>When</dt><dd><?= h(bud_datetime($last_action['timestamp'])) ?></dd>
+                            <?php if ($last_action['changed_by'] && $last_action['changed_by'] !== 'SYSTEM'): ?>
+                                <dt>By</dt><dd><?= h($last_action['changed_by']) ?></dd>
+                            <?php endif; ?>
+                        </dl>
                         <details>
                             <summary>Details</summary>
-                            <pre
-                                style="font-size: 0.75rem; text-align: left; overflow-x: auto;"><?= h($last_action['new_values'] ?: $last_action['old_values']) ?></pre>
+                            <pre><?= h($last_action['new_values'] ?: $last_action['old_values']) ?></pre>
                         </details>
                     </div>
-                    <form method="POST" onsubmit="return confirm('Are you sure you want to undo this action?');">
+                    <form method="POST"
+                        data-confirm-title="Undo the last action?"
+                        data-confirm-message="It puts the record back the way it was before. The undo is saved in the audit log too."
+                        data-confirm-label="Undo"
+                        data-confirm-danger>
                         <input type="hidden" name="action" value="undo">
-                        <input type="hidden" name="log_id" value="<?= $last_action['id'] ?>">
-                        <button type="submit" class="btn" style="background: #ef4444;">Undo Last Action</button>
+                        <input type="hidden" name="log_id" value="<?= h($last_action['id']) ?>">
+                        <button type="submit" class="danger">Undo last action</button>
                     </form>
                 <?php else: ?>
-                    <p>No actions recorded.</p>
+                    <p class="empty-note">Nothing has been recorded yet.</p>
                 <?php endif; ?>
-            </div>
+            </article>
 
-            <!-- Database Management -->
-            <div class="glass-panel">
-                <h3>💾 Database Management</h3>
-
-                <div style="margin-bottom: 2rem;">
-                    <h4>Backup</h4>
-                    <p>Download a snapshot of the current database.</p>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <a href="?action=download" class="btn" style="background: var(--success-color, #10b981);">Download
-                            .db File</a>
-                        <a href="?action=export_json" class="btn" style="background: var(--primary-color, #3b82f6);">Export
-                            as JSON</a>
-                    </div>
+            <!-- Backup and restore -->
+            <article>
+                <h2>Backup and restore</h2>
+                <h3>Backup</h3>
+                <p class="panel-note">Download a copy of the database as it is now.</p>
+                <div class="form-actions">
+                    <a href="?action=download" role="button">Download .db file</a>
+                    <a href="?action=export_json" role="button" class="secondary outline">Export as JSON</a>
                 </div>
 
-                <hr style="border-color: rgba(255,255,255,0.1); margin: 1.5rem 0;">
+                <hr>
 
-                <div>
-                    <h4>Restore</h4>
-                    <p class="text-danger" style="color: #ef4444;">⚠️ Warning: This will overwrite the current database
-                        immediately.</p>
-                    <form method="POST" enctype="multipart/form-data">
-                        <input type="hidden" name="action" value="restore">
-                        <input type="file" name="db_file" accept=".db,.sqlite,.sqlite3" required
-                            style="margin-bottom: 1rem;">
-                        <br>
-                        <button type="submit" class="btn" style="background: #ef4444;"
-                            onclick="return confirm('EXTREME DANGER: This will wipe the current data and replace it with the uploaded file. Are you absolutely sure?');">Replace
-                            Database</button>
-                    </form>
+                <h3>Restore</h3>
+                <div class="callout callout--danger">
+                    <p>Restoring replaces everything in BUD with the file you upload, straight away.</p>
                 </div>
-            </div>
+                <form method="POST" enctype="multipart/form-data"
+                    data-confirm-title="Replace the whole database?"
+                    data-confirm-message="Everything in BUD now is replaced by the file you chose. Download a backup first if you might need today's data."
+                    data-confirm-label="Replace database"
+                    data-confirm-danger>
+                    <input type="hidden" name="action" value="restore">
+                    <label>Database file
+                        <input type="file" name="db_file" accept=".db,.sqlite,.sqlite3" required>
+                    </label>
+                    <button type="submit" class="danger">Replace database</button>
+                </form>
+            </article>
         </div>
 
-        <!-- Stock Integrity Check -->
-        <div class="glass-panel" style="margin-top: 2rem;">
-            <h3>🔍 Stock Integrity Check</h3>
-            <p style="font-size: 0.9rem; color: var(--text-muted, #aaa); margin-bottom: 1rem;">
-                Recalculates expected stock quantities from audit history and COC deductions, then compares with actual values.
-            </p>
+        <!-- Stock integrity check -->
+        <article>
+            <h2>Stock integrity check</h2>
+            <p class="panel-note">Works out what each item should have on hand from its history and the chain of custody transfers, then compares it with what BUD shows.</p>
             <form method="POST">
                 <input type="hidden" name="action" value="verify_stock">
-                <button type="submit" class="btn">Run Verification</button>
+                <button type="submit" class="secondary outline">Run the check</button>
             </form>
 
             <?php if ($verify_results !== null): ?>
-                <div class="table-responsive" style="margin-top: 1.5rem;">
-                    <table style="font-size: 0.85rem;">
+                <div class="table-wrap">
+                    <table class="wide-table">
                         <thead>
                             <tr>
                                 <th>Item</th>
-                                <th>Starting</th>
-                                <th>Added</th>
-                                <th>Shipped</th>
-                                <th>Expected</th>
-                                <th>Actual</th>
-                                <th>Status</th>
+                                <th class="num">Starting</th>
+                                <th class="num">Added</th>
+                                <th class="num">Shipped</th>
+                                <th class="num">Expected</th>
+                                <th class="num">On hand</th>
+                                <th>Result</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($verify_results as $vr): ?>
                                 <tr>
-                                    <td><?= h($vr['name']) ?> <small style="color: var(--text-muted, #888);">(<?= h($vr['sku']) ?>)</small></td>
-                                    <td><?= $vr['start'] !== null ? h($vr['start']) : '<em>?</em>' ?></td>
-                                    <td><?= $vr['added'] > 0 ? '+' . h($vr['added']) : '0' ?></td>
-                                    <td><?= $vr['shipped'] > 0 ? '-' . h($vr['shipped']) : '0' ?></td>
-                                    <td><strong><?= $vr['expected'] !== null ? h($vr['expected']) : '?' ?></strong></td>
-                                    <td><strong><?= h($vr['actual']) ?></strong> <?= h($vr['unit']) ?></td>
+                                    <td class="cell-long"><?= h($vr['name']) ?> <small><?= h($vr['sku']) ?></small></td>
+                                    <td class="num"><?= $vr['start'] !== null ? h(bud_qty($vr['start'])) : '?' ?></td>
+                                    <td class="num"><?= $vr['added'] > 0 ? '+' . h(bud_qty($vr['added'])) : '0' ?></td>
+                                    <td class="num"><?= $vr['shipped'] > 0 ? BUD_MINUS . h(bud_qty($vr['shipped'])) : '0' ?></td>
+                                    <td class="num"><strong><?= $vr['expected'] !== null ? h(bud_qty($vr['expected'])) : '?' ?></strong></td>
+                                    <td class="num"><strong><?= h(bud_qty($vr['actual'])) ?></strong> <?= h($vr['unit']) ?></td>
                                     <td>
                                         <?php if ($vr['status'] === 'OK'): ?>
-                                            <span style="color: #10b981; font-weight: 600;">OK</span>
+                                            <span class="badge">Matches</span>
                                         <?php elseif ($vr['status'] === 'MISMATCH'): ?>
-                                            <span style="color: #ef4444; font-weight: 600;">MISMATCH</span>
+                                            <span class="badge badge--danger">Doesn't match</span>
                                         <?php else: ?>
-                                            <span style="color: #eab308;">NO AUDIT</span>
+                                            <span class="badge badge--todo">No history</span>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -348,8 +333,6 @@ $last_action = $pdo->query("SELECT * FROM audit_log ORDER BY id DESC LIMIT 1")->
                     </table>
                 </div>
             <?php endif; ?>
-        </div>
-    </div>
-</body>
-
-</html>
+        </article>
+    </main>
+<?php require 'includes/footer.php'; ?>

@@ -73,17 +73,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $default_product_id = intval($_POST['default_product_id'] ?? 0) ?: null;
 
             if (!isset($_FILES['csv_file']) || $_FILES['csv_file']['error'] !== UPLOAD_ERR_OK) {
-                $message = "Upload failed — please choose a CSV or Excel (.xlsx) file.";
+                $message = "The upload didn't work. Choose a CSV or Excel (.xlsx) file and try again.";
                 $message_error = true;
             } elseif ($pharmacy === '') {
-                $message = "Please select or enter the pharmacy / place supplied to.";
+                $message = "Choose or type the pharmacy or place it was supplied to.";
                 $message_error = true;
             } else {
                 $orig_name = basename($_FILES['csv_file']['name']);
                 $ext = strtolower(pathinfo($orig_name, PATHINFO_EXTENSION));
 
                 if ($ext === 'xls') {
-                    throw new Exception("Legacy .xls files are not supported — please save the file as .xlsx or CSV first.");
+                    throw new Exception("Older .xls files can't be read. Save the file as .xlsx or CSV first.");
                 } elseif ($ext === 'xlsx') {
                     require_once 'includes/xlsx.php';
                     $all_rows = readXlsxRows($_FILES['csv_file']['tmp_name']);
@@ -136,7 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($c_pre_full === null && $c_pre_last === null) $missing[] = 'prescriber name';
                 if ($c_pat_full === null && $c_pat_last === null) $missing[] = 'patient name';
                 if ($missing) {
-                    throw new Exception("Unrecognised file — could not find column(s): " . implode(', ', $missing));
+                    throw new Exception("This file's layout wasn't recognised. These columns are missing: " . implode(', ', $missing));
                 }
 
                 $cell = function ($row, $i) {
@@ -245,8 +245,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // ── Pass 2: insert ──
                 $pdo->exec("BEGIN TRANSACTION");
-                $ins_import = $pdo->prepare("INSERT INTO s29_imports (filename, pharmacy, default_product_id) VALUES (?, ?, ?)");
-                $ins_import->execute([$orig_name, $pharmacy, $default_product_id]);
+                $ins_import = $pdo->prepare("INSERT INTO s29_imports (filename, pharmacy, default_product_id, imported_at) VALUES (?, ?, ?, ?)");
+                $ins_import->execute([$orig_name, $pharmacy, $default_product_id, bud_now()]);
                 $import_id = $pdo->lastInsertId();
 
                 $ins_row = $pdo->prepare("INSERT INTO s29_supplies
@@ -291,14 +291,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'quantity' => $total_qty,
                 ]);
 
-                $month_list = implode(', ', array_keys($months));
-                $message = "Imported $count records ($total_qty units) covering $month_list — Import #$import_id.";
+                $month_list = implode(', ', array_map('bud_month_label', array_keys($months)));
+                $message = "Imported $count records ($total_qty units) covering $month_list, as import #$import_id.";
                 if ($treat_as_grams) {
                     $verb = $qty_mode === 'grams' ? 'treated as grams as requested' : 'detected as grams';
-                    $message .= " Quantities were $verb and divided by $grams_per_unit g/unit (e.g. " . ($grams_per_unit * 2) . " g → 2 units); the original gram values are kept alongside each record.";
+                    $message .= " Quantities were $verb and divided by $grams_per_unit g per unit (so " . ($grams_per_unit * 2) . " g is 2 units). The original gram values are kept with each record.";
                 }
                 if ($bad_dates > 0) {
-                    $message .= " ⚠️ $bad_dates row(s) had unreadable dates and were saved without one.";
+                    $message .= " " . bud_plural($bad_dates, 'row') . " had a date that couldn't be read, and " . ($bad_dates == 1 ? 'was' : 'were') . " saved without one.";
                 }
             }
         } catch (Exception $e) {
@@ -306,7 +306,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->exec("ROLLBACK");
             } catch (Exception $ignored) {
             }
-            $message = "Import failed: " . $e->getMessage();
+            $message = "The import didn't work: " . $e->getMessage();
             $message_error = true;
         }
     }
@@ -321,15 +321,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $imp_stmt = null;
 
             if (!$imp) {
-                $message = "Import #$import_id not found.";
+                $message = "Import #$import_id wasn't found.";
                 $message_error = true;
             } else {
                 $pdo->prepare("DELETE FROM s29_imports WHERE id = ?")->execute([$import_id]);
                 Audit::log($pdo, 's29_imports', $import_id, 'DELETE', $imp, null);
-                $message = "Import #$import_id ({$imp['filename']}, {$imp['row_count']} rows) deleted.";
+                $message = "Deleted import #$import_id ({$imp['filename']}, " . bud_plural($imp['row_count'], 'record') . ").";
             }
         } catch (Exception $e) {
-            $message = "Error deleting import: " . $e->getMessage();
+            $message = "Couldn't delete the import: " . $e->getMessage();
             $message_error = true;
         }
     }
@@ -347,7 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 isset($_POST['is_active']) ? 1 : 0,
             ];
             if ($vals[0] === '') {
-                $message = "Product name is required.";
+                $message = "A product needs a trade name.";
                 $message_error = true;
             } elseif ($pid) {
                 $old_stmt = $pdo->prepare("SELECT * FROM products WHERE id = ?");
@@ -356,16 +356,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->prepare("UPDATE products SET name = ?, inn_generic = ?, dose_form = ?, pack_size = ?, strength = ?, is_active = ? WHERE id = ?")
                     ->execute(array_merge($vals, [$pid]));
                 Audit::log($pdo, 'products', $pid, 'UPDATE', $old, array_combine(['name', 'inn_generic', 'dose_form', 'pack_size', 'strength', 'is_active'], $vals));
-                $message = "Product '{$vals[0]}' updated.";
+                $message = "Saved the changes to {$vals[0]}.";
             } else {
-                $pdo->prepare("INSERT INTO products (name, inn_generic, dose_form, pack_size, strength, is_active) VALUES (?, ?, ?, ?, ?, ?)")
-                    ->execute($vals);
+                $pdo->prepare("INSERT INTO products (name, inn_generic, dose_form, pack_size, strength, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+                    ->execute(array_merge($vals, [bud_now()]));
                 $pid = $pdo->lastInsertId();
                 Audit::log($pdo, 'products', $pid, 'INSERT', null, array_combine(['name', 'inn_generic', 'dose_form', 'pack_size', 'strength', 'is_active'], $vals));
-                $message = "Product '{$vals[0]}' added.";
+                $message = "Added {$vals[0]} to your products.";
             }
         } catch (Exception $e) {
-            $message = "Error saving product: " . $e->getMessage();
+            $message = "Couldn't save the product: " . $e->getMessage();
             $message_error = true;
         }
     }
@@ -497,106 +497,97 @@ $top_places      = topRanking($pdo, 's.pharmacy', $where_sql, $params);
 
 $imports = $pdo->query("SELECT i.*, p.name AS product_name FROM s29_imports i
     LEFT JOIN products p ON p.id = i.default_product_id
-    ORDER BY i.imported_at DESC LIMIT 50")->fetchAll();
+    ORDER BY i.id DESC LIMIT 50")->fetchAll();
 
 $all_products = $pdo->query("SELECT * FROM products ORDER BY is_active DESC, name ASC")->fetchAll();
 $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 1 ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
+
+// A supply's date and time, or just the date when the file had no time
+function s29_when($value)
+{
+    if (!$value) {
+        return '?';
+    }
+    $when = bud_datetime(substr($value, 0, 16));
+    return substr($when, -6) === ' 00:00' ? substr($when, 0, 10) : $when;
+}
+
+$any_filter = $filter_month || $filter_place || $filter_product || $filter_q;
+$export_url = 's29.php?' . http_build_query([
+    'action' => 'export_csv',
+    'month' => $filter_month,
+    'place' => $filter_place,
+    'product' => $filter_product,
+    'q' => $filter_q,
+]);
+
+$pageTitle = 'Section 29 register';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
+    <main class="container">
+        <hgroup class="page-header">
+            <h1>Section 29 register</h1>
+            <p>Monthly pharmacy supply data (Medicines Act, section 29). Uploaded files are read and thrown away, and only the Section 29 record fields are kept. This data is confidential and stays in BUD's own database.</p>
+        </hgroup>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= APP_NAME ?> - Section 29</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-</head>
+        <?= bud_message($message, $message_error) ?>
 
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <h1>Section 29 Register</h1>
-        <p style="color: var(--text-muted, #aaa); font-size: 0.9rem; margin-bottom: 1.5rem;">
-            Monthly pharmacy supply data (Medicines Act s29). Uploaded files are parsed and discarded —
-            only the Section 29 record fields are kept. This data is confidential and lives only in this
-            add-on's database.
-        </p>
-
-        <?php if ($message): ?>
-            <div class="glass-panel"
-                style="margin-bottom: 1rem; border-color: <?= $message_error ? '#ef4444' : 'var(--accent-color)' ?>;">
-                <?= h($message) ?>
-            </div>
-        <?php endif; ?>
-
-        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem;">
-            <button onclick="togglePanel('uploadPanel')" class="btn">⬆ Upload S29 File</button>
-            <button onclick="togglePanel('importsPanel')" class="btn btn-outline-primary">🗂
-                Imports</button>
-            <button onclick="togglePanel('productsPanel')" class="btn btn-outline-primary">💊
-                Products</button>
-            <button onclick="togglePanel('topPanel')" class="btn btn-outline-primary">🏆
-                Top Orders</button>
+        <div class="page-actions">
+            <button type="button" onclick="openDialog('uploadDialog')">Upload S29 file</button>
+            <button type="button" class="secondary outline" aria-controls="importsPanel" aria-expanded="false" onclick="togglePanel(this)">Imports</button>
+            <button type="button" class="secondary outline" aria-controls="productsPanel" aria-expanded="false" onclick="togglePanel(this)">Products</button>
+            <button type="button" class="secondary outline" aria-controls="topPanel" aria-expanded="false" onclick="togglePanel(this)">Top orders</button>
         </div>
 
-        <!-- Top Orders (patients / prescribers / places, honours current filters) -->
-        <div id="topPanel" class="glass-panel" style="display: none; margin-bottom: 2rem;">
-            <h3>🏆 Top Orders<?= $filter_month ? ' — ' . h($filter_month) : ' — all months' ?></h3>
-            <p><small>Ranked by total quantity across the current filters. Every fill counts — separate orders by
-                    the same person are combined. Click a name to filter the records below.</small></p>
+        <!-- Top orders (patients, prescribers, places, for the current filters) -->
+        <article id="topPanel" hidden>
+            <h2>Top orders<?= $filter_month ? ', ' . h(bud_month_label($filter_month)) : ', all months' ?></h2>
+            <p class="panel-note">Ranked by total quantity for the current filters. Every fill counts, and separate orders by the same person are added together. Click a name to filter the records below.</p>
 
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
-                <button type="button" id="tab-patients" onclick="topTab('patients')" class="btn"
-                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Patients</button>
-                <button type="button" id="tab-prescribers" onclick="topTab('prescribers')" class="btn btn-outline-primary"
-                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Prescribers</button>
-                <button type="button" id="tab-places" onclick="topTab('places')" class="btn btn-outline-primary"
-                    style="padding: 0.3rem 0.75rem; font-size: 0.85rem;">Places</button>
+            <div class="tab-row" role="tablist">
+                <button type="button" id="tab-patients" role="tab" aria-selected="true" onclick="topTab('patients')">Patients</button>
+                <button type="button" id="tab-prescribers" role="tab" aria-selected="false" class="secondary outline" onclick="topTab('prescribers')">Prescribers</button>
+                <button type="button" id="tab-places" role="tab" aria-selected="false" class="secondary outline" onclick="topTab('places')">Places</button>
             </div>
 
             <?php
             $top_tabs = [
                 'patients'    => ['rows' => $top_patients, 'label' => 'Patient', 'filter' => 'q'],
                 'prescribers' => ['rows' => $top_prescribers, 'label' => 'Prescriber', 'filter' => 'q'],
-                'places'      => ['rows' => $top_places, 'label' => 'Place Supplied To', 'filter' => 'place'],
+                'places'      => ['rows' => $top_places, 'label' => 'Place supplied to', 'filter' => 'place'],
             ];
             foreach ($top_tabs as $tab_key => $tab): ?>
-                <div id="top-<?= $tab_key ?>" style="<?= $tab_key === 'patients' ? '' : 'display: none;' ?>">
+                <div id="top-<?= $tab_key ?>" role="tabpanel"<?= $tab_key === 'patients' ? '' : ' hidden' ?>>
                     <?php if (empty($tab['rows'])): ?>
-                        <p>No records for the current filters.</p>
+                        <p class="empty-note">No records for the current filters.</p>
                     <?php else: ?>
-                        <div class="table-responsive">
-                            <table style="font-size: 0.9rem;">
+                        <div class="table-wrap">
+                            <table class="wide-table">
                                 <thead>
                                     <tr>
                                         <th>#</th>
                                         <th><?= $tab['label'] ?></th>
-                                        <th>Orders</th>
-                                        <th>Total Qty</th>
-                                        <th>First Order</th>
-                                        <th>Last Order</th>
+                                        <th class="num">Orders</th>
+                                        <th class="num">Total quantity</th>
+                                        <th>First order</th>
+                                        <th>Last order</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($tab['rows'] as $rank => $t): ?>
-                                        <?php
+                                    <?php foreach ($tab['rows'] as $rank => $t):
                                         $link_params = [
                                             'month'   => $filter_month,
                                             'place'   => $tab['filter'] === 'place' ? $t['who'] : $filter_place,
                                             'product' => $filter_product ?: '',
                                             'q'       => $tab['filter'] === 'q' ? $t['who'] : $filter_q,
-                                        ];
-                                        ?>
+                                        ]; ?>
                                         <tr>
                                             <td><strong><?= $rank + 1 ?></strong></td>
-                                            <td><a href="s29.php?<?= h(http_build_query($link_params)) ?>"
-                                                    style="color: var(--primary-color);"><?= h($t['who']) ?></a></td>
-                                            <td><?= h($t['orders']) ?></td>
-                                            <td><strong><?= h($t['total_qty']) ?></strong></td>
-                                            <td style="white-space: nowrap;"><?= h($t['first_order'] ? substr($t['first_order'], 0, 10) : '?') ?></td>
-                                            <td style="white-space: nowrap;"><?= h($t['last_order'] ? substr($t['last_order'], 0, 10) : '?') ?></td>
+                                            <td><a href="s29.php?<?= h(http_build_query($link_params)) ?>"><?= h($t['who']) ?></a></td>
+                                            <td class="num"><?= h($t['orders']) ?></td>
+                                            <td class="num"><strong><?= h(bud_qty($t['total_qty'])) ?></strong></td>
+                                            <td class="nowrap"><?= h($t['first_order'] ? bud_date($t['first_order']) : '?') ?></td>
+                                            <td class="nowrap"><?= h($t['last_order'] ? bud_date($t['last_order']) : '?') ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -605,106 +596,48 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                     <?php endif; ?>
                 </div>
             <?php endforeach; ?>
-        </div>
-
-        <!-- Upload -->
-        <div id="uploadPanel" class="glass-panel" style="display: none; margin-bottom: 2rem;">
-            <h3>Upload Monthly S29 File</h3>
-            <p style="font-size: 0.9rem; color: var(--text-muted, #aaa);">CSV or Excel (.xlsx) exports from the
-                pharmacy. Columns are detected automatically across the known layouts; anything beyond the Section 29
-                fields (NHI numbers, addresses, pricing, …) is discarded, and the file itself is not kept. Legacy
-                .xls files should be saved as .xlsx or CSV first.</p>
-            <form method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="action" value="upload_s29">
-                <div class="grid">
-                    <div>
-                        <label>CSV or Excel (.xlsx) File</label>
-                        <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv" required>
-                    </div>
-                    <div>
-                        <label>Pharmacy / Place Supplied To</label>
-                        <select name="pharmacy" id="pharmacy_select" onchange="toggleOtherPharmacy(this.value)" required>
-                            <option value="">Select...</option>
-                            <?php foreach ($receivers as $rname): ?>
-                                <option value="<?= h($rname) ?>"><?= h($rname) ?></option>
-                            <?php endforeach; ?>
-                            <option value="__other__">Other (type below)</option>
-                        </select>
-                        <input type="text" name="pharmacy_other" id="pharmacy_other" placeholder="Pharmacy name"
-                            style="display: none; margin-top: 0.5rem;">
-                    </div>
-                    <div>
-                        <label>Product (for rows that don't auto-match)</label>
-                        <select name="default_product_id">
-                            <option value="">— none —</option>
-                            <?php foreach ($all_products as $p): ?>
-                                <?php if ($p['is_active']): ?>
-                                    <option value="<?= $p['id'] ?>"><?= h($p['name']) ?></option>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="grid">
-                    <div>
-                        <label>Quantities in File</label>
-                        <select name="qty_mode">
-                            <option value="auto">Auto-detect (grams when every value is a multiple of grams/unit)</option>
-                            <option value="units">Units / jars — import as-is</option>
-                            <option value="grams">Grams — divide by grams per unit</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label>Grams per Unit</label>
-                        <input type="number" name="grams_per_unit" value="10" min="0.01" step="0.01">
-                    </div>
-                </div>
-                <p style="font-size: 0.8rem; color: var(--text-muted, #aaa);">Rows whose "Med name" contains a known
-                    product name are matched automatically; per-row "Institution" values override the pharmacy above.
-                    Some pharmacies report gram totals instead of unit counts (e.g. 20 = 2 × 10 g jars) — when
-                    converted, the original gram value is kept with each record.</p>
-                <button type="submit" class="btn">Upload &amp; Import</button>
-            </form>
-        </div>
+        </article>
 
         <!-- Imports -->
-        <div id="importsPanel" class="glass-panel" style="display: none; margin-bottom: 2rem;">
-            <h3>🗂 Imports</h3>
-            <p><small>Deleting an import removes all of its supply records (use for re-uploads or mistakes).</small></p>
+        <article id="importsPanel" hidden>
+            <h2>Imports</h2>
+            <p class="panel-note">Deleting an import removes all of its supply records. Use it to fix a mistake or before uploading a file again.</p>
             <?php if (empty($imports)): ?>
-                <p>No imports yet.</p>
+                <p class="empty-note">No imports yet.</p>
             <?php else: ?>
-                <div class="table-responsive">
-                    <table style="font-size: 0.9rem;">
+                <div class="table-wrap">
+                    <table class="wide-table">
                         <thead>
                             <tr>
                                 <th>#</th>
                                 <th>Imported</th>
                                 <th>File</th>
                                 <th>Pharmacy</th>
-                                <th>Default Product</th>
-                                <th>Rows</th>
-                                <th>Total Qty</th>
+                                <th>Default product</th>
+                                <th class="num">Records</th>
+                                <th class="num">Total quantity</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($imports as $imp): ?>
                                 <tr>
-                                    <td><?= $imp['id'] ?></td>
-                                    <td style="white-space: nowrap;"><?= h($imp['imported_at']) ?></td>
-                                    <td><?= h($imp['filename']) ?></td>
+                                    <td><?= h($imp['id']) ?></td>
+                                    <td class="nowrap"><?= h(bud_datetime($imp['imported_at'])) ?></td>
+                                    <td class="cell-long"><?= h($imp['filename']) ?></td>
                                     <td><?= h($imp['pharmacy']) ?></td>
                                     <td><?= h($imp['product_name'] ?? '-') ?></td>
-                                    <td><?= h($imp['row_count']) ?></td>
-                                    <td><?= h($imp['total_quantity']) ?></td>
-                                    <td>
-                                        <form method="POST" style="display: inline;"
-                                            onsubmit="return confirm('Delete import #<?= $imp['id'] ?> and all <?= $imp['row_count'] ?> of its records?');">
+                                    <td class="num"><?= h($imp['row_count']) ?></td>
+                                    <td class="num"><?= h(bud_qty($imp['total_quantity'])) ?></td>
+                                    <td class="row-actions">
+                                        <form method="POST"
+                                            data-confirm-title="Delete import #<?= h($imp['id']) ?>?"
+                                            data-confirm-message="This deletes all <?= h(bud_plural($imp['row_count'], 'record')) ?> from <?= h($imp['filename']) ?>. You can upload the file again afterwards."
+                                            data-confirm-label="Delete import"
+                                            data-confirm-danger>
                                             <input type="hidden" name="action" value="delete_import">
-                                            <input type="hidden" name="import_id" value="<?= $imp['id'] ?>">
-                                            <button type="submit" class="btn"
-                                                style="padding: 0.2rem 0.5rem; font-size: 0.75rem; background: #ef4444;">Delete</button>
+                                            <input type="hidden" name="import_id" value="<?= h($imp['id']) ?>">
+                                            <button type="submit" class="danger outline">Delete</button>
                                         </form>
                                     </td>
                                 </tr>
@@ -713,23 +646,29 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                     </table>
                 </div>
             <?php endif; ?>
-        </div>
+        </article>
 
         <!-- Products -->
-        <div id="productsPanel" class="glass-panel" style="display: none; margin-bottom: 2rem;">
-            <h3>💊 Products</h3>
-            <p><small>The Section 29 constants for each verified product. Rows in uploaded files are matched to
-                    products by name.</small></p>
-            <div class="table-responsive">
-                <table style="font-size: 0.9rem;">
+        <article id="productsPanel" hidden>
+            <div class="panel-head">
+                <div>
+                    <h2>Products</h2>
+                    <p>The Section 29 details for each verified product. Rows in an uploaded file are matched to a product by its name.</p>
+                </div>
+                <div class="panel-head-actions">
+                    <button type="button" onclick="openProduct(null)">Add product</button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table class="wide-table">
                     <thead>
                         <tr>
-                            <th>Trade Name</th>
-                            <th>INN / Generic</th>
-                            <th>Dose Form</th>
-                            <th>Pack Size</th>
+                            <th>Trade name</th>
+                            <th>INN or generic name</th>
+                            <th>Dose form</th>
+                            <th>Pack size</th>
                             <th>Strength</th>
-                            <th>Active</th>
+                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -741,105 +680,60 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                                 <td><?= h($p['dose_form'] ?: '-') ?></td>
                                 <td><?= h($p['pack_size'] ?: '-') ?></td>
                                 <td><?= h($p['strength'] ?: '-') ?></td>
-                                <td><?= $p['is_active'] ? '✓' : '✕' ?></td>
-                                <td>
-                                    <button onclick='editProduct(<?= json_encode($p) ?>)' class="btn"
-                                        style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">Edit</button>
+                                <td><?= $p['is_active'] ? '<span class="badge">Active</span>' : '<span class="badge badge--neutral">Not in use</span>' ?></td>
+                                <td class="row-actions">
+                                    <button type="button" class="secondary outline" data-product="<?= h(json_encode($p)) ?>" onclick="openProduct(JSON.parse(this.dataset.product))">Edit</button>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
-
-            <h4 id="product-form-title" style="margin-top: 1.5rem;">Add Product</h4>
-            <form method="POST" id="productForm">
-                <input type="hidden" name="action" value="save_product">
-                <input type="hidden" name="product_id" id="product_id" value="">
-                <div class="grid">
-                    <div>
-                        <label>Trade Name</label>
-                        <input type="text" name="name" id="p_name" required placeholder="e.g. BB11">
-                    </div>
-                    <div>
-                        <label>INN / Generic Name</label>
-                        <input type="text" name="inn_generic" id="p_inn" placeholder="e.g. Cannabis sativa dried flower">
-                    </div>
-                    <div>
-                        <label>Dose Form</label>
-                        <input type="text" name="dose_form" id="p_form" placeholder="e.g. Dried flower">
-                    </div>
-                </div>
-                <div class="grid">
-                    <div>
-                        <label>Pack Size</label>
-                        <input type="text" name="pack_size" id="p_pack" placeholder="e.g. 10 g">
-                    </div>
-                    <div>
-                        <label>Strength</label>
-                        <input type="text" name="strength" id="p_strength" placeholder="e.g. THC 200 mg/g + CBD 10 mg/g">
-                    </div>
-                    <div style="display: flex; align-items: flex-end; gap: 0.5rem;">
-                        <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
-                            <input type="checkbox" name="is_active" id="p_active" checked style="width: auto;"> Active
-                        </label>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
-                    <button type="submit" class="btn">Save Product</button>
-                    <button type="button" class="btn btn-outline-muted" onclick="resetProductForm()">Clear</button>
-                </div>
-            </form>
-        </div>
+        </article>
 
         <!-- Filters -->
-        <div class="glass-panel" style="margin-bottom: 2rem;">
-            <form method="GET" style="display: flex; gap: 1rem; align-items: flex-end; flex-wrap: wrap;">
-                <div>
-                    <label>Month</label>
-                    <select name="month">
-                        <option value="">All months</option>
-                        <?php foreach ($months as $m): ?>
-                            <option value="<?= h($m) ?>" <?= $m === $filter_month ? 'selected' : '' ?>><?= h($m) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div>
-                    <label>Place</label>
-                    <input type="text" name="place" value="<?= h($filter_place) ?>" placeholder="Pharmacy / clinic">
-                </div>
-                <div>
-                    <label>Product</label>
-                    <select name="product">
-                        <option value="">All</option>
-                        <?php foreach ($all_products as $p): ?>
-                            <option value="<?= $p['id'] ?>" <?= $p['id'] == $filter_product ? 'selected' : '' ?>><?= h($p['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div>
-                    <label>Search (patient / prescriber)</label>
-                    <input type="text" name="q" value="<?= h($filter_q) ?>" placeholder="Name...">
-                </div>
-                <button type="submit" class="btn">Filter</button>
-                <a href="s29.php?action=export_csv&month=<?= urlencode($filter_month) ?>&place=<?= urlencode($filter_place) ?>&product=<?= $filter_product ?>&q=<?= urlencode($filter_q) ?>"
-                    class="btn btn-outline-primary">⬇
-                    Export CSV</a>
-            </form>
-        </div>
+        <form method="GET" class="toolbar">
+            <label>Month
+                <select name="month">
+                    <option value="">All months</option>
+                    <?php foreach ($months as $m): ?>
+                        <option value="<?= h($m) ?>" <?= $m === $filter_month ? 'selected' : '' ?>><?= h(bud_month_label($m)) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label class="toolbar-grow">Place
+                <input type="text" name="place" value="<?= h($filter_place) ?>" placeholder="Pharmacy or clinic">
+            </label>
+            <label>Product
+                <select name="product">
+                    <option value="">All products</option>
+                    <?php foreach ($all_products as $p): ?>
+                        <option value="<?= h($p['id']) ?>" <?= $p['id'] == $filter_product ? 'selected' : '' ?>><?= h($p['name']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </label>
+            <label class="toolbar-grow">Patient or prescriber
+                <input type="search" name="q" value="<?= h($filter_q) ?>" placeholder="Name">
+            </label>
+            <button type="submit">Filter</button>
+            <?php if ($any_filter): ?>
+                <a href="s29.php" role="button" class="secondary outline">Clear</a>
+            <?php endif; ?>
+            <a href="<?= h($export_url) ?>" role="button" class="secondary outline">Export CSV</a>
+        </form>
 
         <!-- Summary -->
         <?php if (!empty($summary)): ?>
-            <div class="glass-panel" style="margin-bottom: 2rem;">
-                <h3>📊 Summary<?= $filter_month ? ' — ' . h($filter_month) : '' ?></h3>
-                <div class="table-responsive">
-                    <table style="font-size: 0.9rem;">
+            <section class="hub-section">
+                <h2>Summary<?= $filter_month ? ', ' . h(bud_month_label($filter_month)) : '' ?></h2>
+                <div class="table-wrap">
+                    <table class="wide-table">
                         <thead>
                             <tr>
                                 <th>Product</th>
-                                <th>Place Supplied To</th>
-                                <th>Supplies</th>
-                                <th>Total Quantity</th>
+                                <th>Place supplied to</th>
+                                <th class="num">Supplies</th>
+                                <th class="num">Total quantity</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -847,43 +741,53 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                                 <tr>
                                     <td><?= h($s['product']) ?></td>
                                     <td><?= h($s['pharmacy']) ?></td>
-                                    <td><?= h($s['supplies']) ?></td>
-                                    <td><strong><?= h($s['total_qty']) ?></strong></td>
+                                    <td class="num"><?= h($s['supplies']) ?></td>
+                                    <td class="num"><strong><?= h(bud_qty($s['total_qty'])) ?></strong></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
                     </table>
                 </div>
-            </div>
+            </section>
         <?php endif; ?>
 
         <!-- Register -->
-        <div class="glass-panel">
-            <h3>📋 Supply Records<?= $filter_month ? ' — ' . h($filter_month) : '' ?></h3>
-            <p><small><?= count($supplies) ?> record<?= count($supplies) !== 1 ? 's' : '' ?><?= count($supplies) === 1000 ? ' (showing first 1000 — narrow the filters)' : '' ?></small></p>
+        <section>
+            <div class="panel-head">
+                <div>
+                    <h2>Supply records<?= $filter_month ? ', ' . h(bud_month_label($filter_month)) : '' ?></h2>
+                    <p><?= h(bud_plural(count($supplies), 'record')) ?><?= count($supplies) === 1000 ? '. Only the first 1,000 are shown, so narrow the filters.' : '' ?></p>
+                </div>
+            </div>
             <?php if (empty($supplies)): ?>
-                <p>No supply records<?= $filter_month || $filter_place || $filter_product || $filter_q ? ' matching these filters' : ' yet — upload an S29 file to get started' ?>.</p>
+                <p class="empty-note"><?= $any_filter ? 'No supply records match these filters.' : 'No supply records yet. Upload an S29 file to get started.' ?></p>
             <?php else: ?>
-                <div class="table-responsive">
-                    <table style="font-size: 0.85rem;">
+                <div class="table-wrap">
+                    <table class="wide-table">
                         <thead>
                             <tr>
                                 <th>Date</th>
                                 <th>Prescriber</th>
                                 <th>Patient</th>
                                 <th>Product</th>
-                                <th>Qty</th>
-                                <th>Place Supplied To</th>
+                                <th class="num">Quantity</th>
+                                <th>Place supplied to</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($supplies as $s): ?>
                                 <tr>
-                                    <td style="white-space: nowrap;"><?= h($s['supplied_at'] ? substr($s['supplied_at'], 0, 16) : '?') ?></td>
-                                    <td><?= h($s['prescriber']) ?><?= $s['prescriber_facility'] ? '<br><small style="color: var(--text-muted, #aaa);">' . h($s['prescriber_facility']) . '</small>' : '' ?></td>
+                                    <td class="nowrap"><?= h(s29_when($s['supplied_at'])) ?></td>
+                                    <td>
+                                        <?= h($s['prescriber']) ?>
+                                        <?php if ($s['prescriber_facility']): ?><small><?= h($s['prescriber_facility']) ?></small><?php endif; ?>
+                                    </td>
                                     <td><?= h($s['patient']) ?></td>
                                     <td><?= h($s['product_name'] ?? $s['med_name']) ?></td>
-                                    <td><?= h($s['quantity']) ?><?= $s['raw_quantity'] !== null && $s['raw_quantity'] !== '' ? ' <small style="color: var(--text-muted, #aaa);">(' . h($s['raw_quantity']) . ' g)</small>' : '' ?></td>
+                                    <td class="num">
+                                        <?= h(bud_qty($s['quantity'])) ?>
+                                        <?php if ($s['raw_quantity'] !== null && $s['raw_quantity'] !== ''): ?><small><?= h(bud_qty($s['raw_quantity'])) ?> g</small><?php endif; ?>
+                                    </td>
                                     <td><?= h($s['pharmacy']) ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -891,47 +795,146 @@ $receivers = $pdo->query("SELECT name FROM verified_receivers WHERE is_active = 
                     </table>
                 </div>
             <?php endif; ?>
-        </div>
-    </div>
+        </section>
+    </main>
+
+    <!-- Upload a monthly S29 file -->
+    <dialog id="uploadDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3>Upload S29 file</h3>
+            </header>
+            <p class="modal-text">A CSV or Excel (.xlsx) export from the pharmacy. BUD finds the columns itself in the known layouts. Anything beyond the Section 29 fields (NHI numbers, addresses, prices and so on) is thrown away, and so is the file. Save older .xls files as .xlsx or CSV first.</p>
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="upload_s29">
+                <label>CSV or Excel (.xlsx) file
+                    <input type="file" name="csv_file" accept=".csv,.xlsx,text/csv" required>
+                </label>
+                <div class="form-grid form-grid--2">
+                    <label>Pharmacy or place supplied to
+                        <select name="pharmacy" id="pharmacy_select" onchange="toggleOtherPharmacy(this.value)" required>
+                            <option value="">Choose one</option>
+                            <?php foreach ($receivers as $rname): ?>
+                                <option value="<?= h($rname) ?>"><?= h($rname) ?></option>
+                            <?php endforeach; ?>
+                            <option value="__other__">Somewhere else (type it below)</option>
+                        </select>
+                    </label>
+                    <label>Product for rows that don't match one
+                        <select name="default_product_id">
+                            <option value="">None</option>
+                            <?php foreach ($all_products as $p): ?>
+                                <?php if ($p['is_active']): ?>
+                                    <option value="<?= h($p['id']) ?>"><?= h($p['name']) ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                </div>
+                <label id="pharmacy_other_label" hidden>Pharmacy name
+                    <input type="text" name="pharmacy_other" id="pharmacy_other">
+                </label>
+                <div class="form-grid form-grid--2">
+                    <label>Quantities in the file
+                        <select name="qty_mode">
+                            <option value="auto">Work it out (grams when every value is a multiple of the grams per unit)</option>
+                            <option value="units">Units or jars, import as they are</option>
+                            <option value="grams">Grams, divide by the grams per unit</option>
+                        </select>
+                    </label>
+                    <label>Grams per unit
+                        <input type="number" name="grams_per_unit" value="10" min="0.01" step="0.01">
+                    </label>
+                </div>
+                <small class="field-hint">A row whose "Med name" contains a product's name is matched to it. A row's own "Institution" value takes the place of the pharmacy above. Some pharmacies report grams instead of units (20 means 2 jars of 10 g), and when BUD converts those it keeps the original grams with each record.</small>
+                <footer>
+                    <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                    <button type="submit">Upload and import</button>
+                </footer>
+            </form>
+        </article>
+    </dialog>
+
+    <!-- Add or edit a product -->
+    <dialog id="productDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3 id="product-form-title">Add product</h3>
+            </header>
+            <form method="POST" id="productForm">
+                <input type="hidden" name="action" value="save_product">
+                <input type="hidden" name="product_id" id="product_id" value="">
+                <div class="form-grid form-grid--3">
+                    <label>Trade name
+                        <input type="text" name="name" id="p_name" required placeholder="For example, Cultivar A">
+                    </label>
+                    <label>INN or generic name
+                        <input type="text" name="inn_generic" id="p_inn" placeholder="For example, Cannabis sativa dried flower">
+                    </label>
+                    <label>Dose form
+                        <input type="text" name="dose_form" id="p_form" placeholder="For example, dried flower">
+                    </label>
+                    <label>Pack size
+                        <input type="text" name="pack_size" id="p_pack" placeholder="For example, 10 g">
+                    </label>
+                    <label>Strength
+                        <input type="text" name="strength" id="p_strength" placeholder="For example, THC 200 mg/g + CBD 10 mg/g">
+                    </label>
+                </div>
+                <label class="check-row">
+                    <input type="checkbox" name="is_active" id="p_active" checked>
+                    In use (offered when uploading a file)
+                </label>
+                <footer>
+                    <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                    <button type="submit" id="product_submit">Add product</button>
+                </footer>
+            </form>
+        </article>
+    </dialog>
 
     <script>
-        function togglePanel(id) {
-            const el = document.getElementById(id);
-            el.style.display = el.style.display === 'none' ? 'block' : 'none';
+        // Show or hide a panel (Imports, Products, Top orders)
+        function togglePanel(button) {
+            const panel = document.getElementById(button.getAttribute('aria-controls'));
+            const open = panel.hidden;
+            panel.hidden = !open;
+            button.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
 
         function topTab(name) {
             ['patients', 'prescribers', 'places'].forEach(t => {
-                document.getElementById('top-' + t).style.display = t === name ? 'block' : 'none';
-                // Class toggle, not inline styles — .btn forces white text with
-                // !important, which inline colors can't override in light mode
-                document.getElementById('tab-' + t).classList.toggle('btn-outline-primary', t !== name);
+                document.getElementById('top-' + t).hidden = t !== name;
+                const tab = document.getElementById('tab-' + t);
+                tab.classList.toggle('secondary', t !== name);
+                tab.classList.toggle('outline', t !== name);
+                tab.setAttribute('aria-selected', t === name ? 'true' : 'false');
             });
         }
 
         function toggleOtherPharmacy(value) {
-            document.getElementById('pharmacy_other').style.display = value === '__other__' ? 'block' : 'none';
+            const other = value === '__other__';
+            document.getElementById('pharmacy_other_label').hidden = !other;
+            document.getElementById('pharmacy_other').required = other;
         }
 
-        function editProduct(p) {
-            document.getElementById('productsPanel').style.display = 'block';
-            document.getElementById('product-form-title').textContent = 'Edit Product: ' + p.name;
-            document.getElementById('product_id').value = p.id;
-            document.getElementById('p_name').value = p.name || '';
-            document.getElementById('p_inn').value = p.inn_generic || '';
-            document.getElementById('p_form').value = p.dose_form || '';
-            document.getElementById('p_pack').value = p.pack_size || '';
-            document.getElementById('p_strength').value = p.strength || '';
-            document.getElementById('p_active').checked = p.is_active == 1;
-            document.getElementById('productForm').scrollIntoView({ behavior: 'smooth' });
-        }
-
-        function resetProductForm() {
-            document.getElementById('product-form-title').textContent = 'Add Product';
-            document.getElementById('product_id').value = '';
+        // product is null for a new one
+        function openProduct(p) {
+            const editing = !!p;
+            const v = p || {};
             document.getElementById('productForm').reset();
+            document.getElementById('product-form-title').textContent = editing ? 'Edit product' : 'Add product';
+            document.getElementById('product_submit').textContent = editing ? 'Save changes' : 'Add product';
+            document.getElementById('product_id').value = v.id ?? '';
+            document.getElementById('p_name').value = v.name ?? '';
+            document.getElementById('p_inn').value = v.inn_generic ?? '';
+            document.getElementById('p_form').value = v.dose_form ?? '';
+            document.getElementById('p_pack').value = v.pack_size ?? '';
+            document.getElementById('p_strength').value = v.strength ?? '';
+            document.getElementById('p_active').checked = editing ? v.is_active == 1 : true;
+            openDialog('productDialog');
         }
     </script>
-</body>
-
-</html>
+<?php require 'includes/footer.php'; ?>

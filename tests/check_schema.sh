@@ -14,7 +14,7 @@ echo "== Schema validation =="
 sqlite3 "$TMP/schema_test.db" < "$SCHEMA"
 
 expected="suppliers stock_items audit_log destruction_log products s29_imports s29_supplies \
-chain_of_custody materials_out_reports product_bundles bundle_items verified_receivers"
+chain_of_custody materials_out_reports product_bundles bundle_items verified_receivers settings"
 
 fail=0
 for table in $expected; do
@@ -42,7 +42,9 @@ done
 
 # Columns added over time must also exist on FRESH installs (schema.sql must
 # always match what in-place migrations produce — see tests/upgrade_test.sh)
-for col in "chain_of_custody:invoiced_at" "chain_of_custody:cancelled_at" "chain_of_custody:cancel_reason" "chain_of_custody:receiver_id" "chain_of_custody:received_by" "s29_supplies:raw_quantity"; do
+for col in "chain_of_custody:invoiced_at" "chain_of_custody:cancelled_at" "chain_of_custody:cancel_reason" "chain_of_custody:receiver_id" "chain_of_custody:received_by" "s29_supplies:raw_quantity" \
+    "chain_of_custody:delivery_method" "chain_of_custody:courier_company" "chain_of_custody:tracking_number" \
+    "chain_of_custody:signed_document" "chain_of_custody:signed_document_name" "verified_receivers:licence_number"; do
     table="${col%%:*}"; column="${col##*:}"
     found=$(sqlite3 "$TMP/schema_test.db" \
         "SELECT COUNT(*) FROM pragma_table_info('$table') WHERE name='$column';")

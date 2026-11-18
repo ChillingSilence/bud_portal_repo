@@ -2,6 +2,7 @@
 require_once 'config.php';
 
 $message = '';
+$message_error = false;
 
 // Handle Actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -13,19 +14,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $address = trim($_POST['address'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
+        $licence = trim($_POST['licence_number'] ?? '');
 
         if ($name) {
-            $stmt = $pdo->prepare("INSERT INTO verified_receivers (name, contact_person, address, phone, notes) VALUES (?, ?, ?, ?, ?)");
-            $stmt->execute([$name, $contact_person, $address, $phone, $notes]);
-            $message = "Receiver \"$name\" added successfully.";
+            $stmt = $pdo->prepare("INSERT INTO verified_receivers (name, contact_person, address, phone, notes, licence_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$name, $contact_person, $address, $phone, $notes, $licence, bud_now()]);
+            $message = "Added " . $name . " to your verified receivers.";
         } else {
-            $message = "Error: Receiver name is required.";
+            $message = "A receiver needs a name.";
+            $message_error = true;
         }
-    } elseif ($action === 'delete_receiver') {
+    } elseif ($action === 'retire_receiver' || $action === 'delete_receiver') {
+        // Receivers are retired, never deleted: past transfers link to them,
+        // and their address belongs on those shipping manifests and reports.
+        // ('delete_receiver' came from BUD 0.x pages and is treated the same.)
         $id = intval($_POST['receiver_id'] ?? 0);
         if ($id) {
-            $pdo->prepare("DELETE FROM verified_receivers WHERE id = ?")->execute([$id]);
-            $message = "Receiver deleted.";
+            $pdo->prepare("UPDATE verified_receivers SET is_active = 0 WHERE id = ?")->execute([$id]);
+            $message = "Retired the receiver. It won't be offered for new transfers, and past transfers keep it.";
+        }
+    } elseif ($action === 'restore_receiver') {
+        $id = intval($_POST['receiver_id'] ?? 0);
+        if ($id) {
+            $pdo->prepare("UPDATE verified_receivers SET is_active = 1 WHERE id = ?")->execute([$id]);
+            $message = "Brought the receiver back. It's offered for new transfers again.";
         }
     } elseif ($action === 'edit_receiver') {
         $id = intval($_POST['receiver_id'] ?? 0);
@@ -34,192 +46,151 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $address = trim($_POST['address'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $notes = trim($_POST['notes'] ?? '');
+        $licence = trim($_POST['licence_number'] ?? '');
 
         if ($id && $name) {
-            $stmt = $pdo->prepare("UPDATE verified_receivers SET name=?, contact_person=?, address=?, phone=?, notes=? WHERE id=?");
-            $stmt->execute([$name, $contact_person, $address, $phone, $notes, $id]);
-            $message = "Receiver updated.";
+            $stmt = $pdo->prepare("UPDATE verified_receivers SET name=?, contact_person=?, address=?, phone=?, notes=?, licence_number=? WHERE id=?");
+            $stmt->execute([$name, $contact_person, $address, $phone, $notes, $licence, $id]);
+            $message = "Saved the changes to " . $name . ".";
+        } else {
+            $message = "A receiver needs a name.";
+            $message_error = true;
         }
     }
 }
 
-$receivers = $pdo->query("SELECT * FROM verified_receivers ORDER BY name ASC")->fetchAll();
+// Current receivers first, retired ones after
+$receivers = $pdo->query("SELECT * FROM verified_receivers ORDER BY is_active DESC, name ASC")->fetchAll();
+
+$pageTitle = 'Verified receivers';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
+    <main class="container">
+        <hgroup class="page-header">
+            <h1>Verified receivers</h1>
+            <p>The pharmacies and places you send controlled stock to. Their address goes on shipping manifests and the monthly report.</p>
+        </hgroup>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>
-        <?= APP_NAME ?> - Verified Receivers
-    </title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-</head>
+        <?= bud_message($message, $message_error) ?>
 
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem;">
-            <a href="custody.php" style="color: var(--primary-color); text-decoration: none; font-size: 0.9rem;">← Back
-                to Chain of Custody</a>
+        <div class="page-actions">
+            <button type="button" onclick="openReceiver(null)">Add receiver</button>
         </div>
-        <h1>Verified Receivers</h1>
-        <p style="color: var(--text-muted, #aaa); margin-bottom: 1.5rem;">Pre-registered destinations for Chain of
-            Custody transfers and packing slips.</p>
 
-        <?php if ($message): ?>
-            <div class="glass-panel" style="margin-bottom: 1rem; border-color: var(--accent-color);">
-                <?= h($message) ?>
+        <?php if (empty($receivers)): ?>
+            <p class="empty-note">No receivers yet. Add one before starting a chain of custody transfer.</p>
+        <?php else: ?>
+            <div class="table-wrap">
+                <table class="wide-table">
+                    <thead>
+                        <tr>
+                            <th>Receiver</th>
+                            <th>Contact person</th>
+                            <th>Address</th>
+                            <th>Phone</th>
+                            <th>Notes</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($receivers as $r):
+                            $active = (int) $r['is_active'] === 1; ?>
+                            <tr id="row-<?= h($r['id']) ?>">
+                                <td>
+                                    <strong><?= h($r['name']) ?></strong>
+                                    <?php if (!$active): ?><span class="badge badge--neutral">Retired</span><?php endif; ?>
+                                    <?php if (!empty($r['licence_number'])): ?><small>Licence <?= h($r['licence_number']) ?></small><?php endif; ?>
+                                </td>
+                                <td><?= h($r['contact_person']) ?></td>
+                                <td class="cell-long"><?= h($r['address']) ?></td>
+                                <td class="nowrap"><?= h($r['phone']) ?></td>
+                                <td class="cell-long"><?= h($r['notes']) ?></td>
+                                <td class="row-actions">
+                                    <button type="button" class="secondary outline" data-receiver="<?= h(json_encode($r)) ?>" onclick="openReceiver(JSON.parse(this.dataset.receiver))">Edit</button>
+                                    <?php if ($active): ?>
+                                        <form method="POST"
+                                            data-confirm-title="Retire <?= h($r['name']) ?>?"
+                                            data-confirm-message="It won't be offered for new transfers or Section 29 uploads. Past transfers keep it, with its address. You can bring it back at any time."
+                                            data-confirm-label="Retire">
+                                            <input type="hidden" name="action" value="retire_receiver">
+                                            <input type="hidden" name="receiver_id" value="<?= h($r['id']) ?>">
+                                            <button type="submit" class="secondary outline">Retire</button>
+                                        </form>
+                                    <?php else: ?>
+                                        <form method="POST">
+                                            <input type="hidden" name="action" value="restore_receiver">
+                                            <input type="hidden" name="receiver_id" value="<?= h($r['id']) ?>">
+                                            <button type="submit" class="secondary outline">Bring back</button>
+                                        </form>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
             </div>
         <?php endif; ?>
+    </main>
 
-        <!-- Add Receiver Form -->
-        <div class="glass-panel" style="margin-bottom: 2rem;">
-            <h3>+ Add New Receiver</h3>
-            <form method="POST">
-                <input type="hidden" name="action" value="add_receiver">
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div>
-                        <label>Pharmacy / Destination Name <span style="color: #ef4444;">*</span></label>
-                        <input type="text" name="name" placeholder="e.g. Westmere Pharmacy" required>
-                    </div>
-                    <div>
-                        <label>Contact Person (default receiver name)</label>
-                        <input type="text" name="contact_person" placeholder="e.g. Samantha">
-                    </div>
-                </div>
-                <div style="margin-top: 1rem;">
-                    <label>Address (shown on packing slips)</label>
-                    <input type="text" name="address" placeholder="e.g. 123 Main St, Westmere, Auckland">
-                </div>
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
-                    <div>
-                        <label>Phone</label>
-                        <input type="text" name="phone" placeholder="Optional">
-                    </div>
-                    <div>
-                        <label>Notes</label>
-                        <input type="text" name="notes" placeholder="Optional">
-                    </div>
-                </div>
-                <div style="margin-top: 1.5rem;">
-                    <button type="submit" class="btn">Save Receiver</button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Receivers List -->
-        <div class="glass-panel">
-            <h3>Registered Receivers</h3>
-            <?php if (empty($receivers)): ?>
-                <p>No receivers registered yet.</p>
-            <?php else: ?>
-                <div class="table-responsive">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>Contact Person</th>
-                                <th>Address</th>
-                                <th>Phone</th>
-                                <th>Notes</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($receivers as $r): ?>
-                                <tr id="row-<?= $r['id'] ?>">
-                                    <td><strong>
-                                            <?= h($r['name']) ?>
-                                        </strong></td>
-                                    <td>
-                                        <?= h($r['contact_person']) ?>
-                                    </td>
-                                    <td>
-                                        <?= h($r['address']) ?>
-                                    </td>
-                                    <td>
-                                        <?= h($r['phone']) ?>
-                                    </td>
-                                    <td>
-                                        <?= h($r['notes']) ?>
-                                    </td>
-                                    <td style="white-space: nowrap;">
-                                        <button onclick="openEdit(<?= htmlspecialchars(json_encode($r), ENT_QUOTES, 'UTF-8') ?>)" class="btn btn-outline-primary"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">Edit</button>
-                                        <form method="POST" style="display:inline;"
-                                            onsubmit="return confirm('Delete this receiver?');">
-                                            <input type="hidden" name="action" value="delete_receiver">
-                                            <input type="hidden" name="receiver_id" value="<?= $r['id'] ?>">
-                                            <button type="submit" class="btn"
-                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #ef4444;">Delete</button>
-                                        </form>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-            <?php endif; ?>
-        </div>
-    </div>
-
-    <!-- Edit Modal -->
-    <div id="editModal"
-        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:100; backdrop-filter:blur(5px); overflow-y:auto;">
-        <div class="glass-panel" style="margin: 5vh auto; max-width: 600px; position:relative;">
-            <button onclick="document.getElementById('editModal').style.display='none'"
-                style="position:absolute; right:1rem; top:1rem; background:transparent; color:var(--text-color); border:1px solid var(--card-border);">✕
-                Close</button>
-            <h3>Edit Receiver</h3>
-            <form method="POST" id="editForm">
-                <input type="hidden" name="action" value="edit_receiver">
+    <!-- Add or edit a receiver -->
+    <dialog id="receiverDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3 id="receiver_title">Add receiver</h3>
+            </header>
+            <form method="POST" id="receiverForm">
+                <input type="hidden" name="action" id="receiver_action" value="add_receiver">
                 <input type="hidden" name="receiver_id" id="edit_id">
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem;">
-                    <div>
-                        <label>Name <span style="color:#ef4444;">*</span></label>
-                        <input type="text" name="name" id="edit_name" required>
-                    </div>
-                    <div>
-                        <label>Contact Person</label>
-                        <input type="text" name="contact_person" id="edit_contact">
-                    </div>
+                <div class="form-grid form-grid--2">
+                    <label>Pharmacy or destination name
+                        <input type="text" name="name" id="edit_name" placeholder="For example, Joe's Pharmacy" required>
+                    </label>
+                    <label>Contact person
+                        <input type="text" name="contact_person" id="edit_contact" placeholder="For example, Jo Bloggs">
+                    </label>
                 </div>
-                <div style="margin-top:1rem;">
-                    <label>Address</label>
-                    <input type="text" name="address" id="edit_address">
-                </div>
-                <div class="grid" style="grid-template-columns: 1fr 1fr; gap: 1rem; margin-top:1rem;">
-                    <div>
-                        <label>Phone</label>
+                <small class="field-hint">The contact person is filled in as the receiver when a transfer arrives.</small>
+                <label>Licence number
+                    <input type="text" name="licence_number" id="edit_licence" placeholder="Optional, printed on the shipping manifest">
+                </label>
+                <label>Address
+                    <input type="text" name="address" id="edit_address" placeholder="For example, 10 Example Street, Hamilton">
+                </label>
+                <small class="field-hint">Shown on shipping manifests and the monthly report.</small>
+                <div class="form-grid form-grid--2">
+                    <label>Phone
                         <input type="text" name="phone" id="edit_phone">
-                    </div>
-                    <div>
-                        <label>Notes</label>
+                    </label>
+                    <label>Notes
                         <input type="text" name="notes" id="edit_notes">
-                    </div>
+                    </label>
                 </div>
-                <div style="margin-top:1.5rem;">
-                    <button type="submit" class="btn">Save Changes</button>
-                </div>
+                <footer>
+                    <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                    <button type="submit" id="receiver_submit">Add receiver</button>
+                </footer>
             </form>
-        </div>
-    </div>
+        </article>
+    </dialog>
 
     <script>
-        function openEdit(data) {
-            document.getElementById('edit_id').value = data.id;
-            document.getElementById('edit_name').value = data.name || '';
-            document.getElementById('edit_contact').value = data.contact_person || '';
-            document.getElementById('edit_address').value = data.address || '';
-            document.getElementById('edit_phone').value = data.phone || '';
-            document.getElementById('edit_notes').value = data.notes || '';
-            document.getElementById('editModal').style.display = 'block';
+        // receiver is null for a new one
+        function openReceiver(receiver) {
+            const editing = !!receiver;
+            const r = receiver || {};
+            document.getElementById('receiverForm').reset();
+            document.getElementById('receiver_title').textContent = editing ? 'Edit receiver' : 'Add receiver';
+            document.getElementById('receiver_submit').textContent = editing ? 'Save changes' : 'Add receiver';
+            document.getElementById('receiver_action').value = editing ? 'edit_receiver' : 'add_receiver';
+            document.getElementById('edit_id').value = r.id ?? '';
+            document.getElementById('edit_name').value = r.name ?? '';
+            document.getElementById('edit_contact').value = r.contact_person ?? '';
+            document.getElementById('edit_licence').value = r.licence_number ?? '';
+            document.getElementById('edit_address').value = r.address ?? '';
+            document.getElementById('edit_phone').value = r.phone ?? '';
+            document.getElementById('edit_notes').value = r.notes ?? '';
+            openDialog('receiverDialog');
         }
     </script>
-</body>
-
-</html>
+<?php require 'includes/footer.php'; ?>

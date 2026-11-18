@@ -6,12 +6,15 @@ class Audit
     public static function log($pdo, $table, $record_id, $action, $old_values = null, $new_values = null, $changed_by = 'SYSTEM')
     {
         try {
-            $stmt = $pdo->prepare("INSERT INTO audit_log (table_name, record_id, action, changed_by, old_values, new_values) VALUES (?, ?, ?, ?, ?, ?)");
+            // Stamped in NZ time (config.php's time zone). SQLite's own
+            // CURRENT_TIMESTAMP is UTC, which put early-morning entries on the
+            // 1st into the previous month's report.
+            $stmt = $pdo->prepare("INSERT INTO audit_log (table_name, record_id, action, changed_by, old_values, new_values, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)");
 
             $old_json = $old_values ? json_encode($old_values) : null;
             $new_json = $new_values ? json_encode($new_values) : null;
 
-            $stmt->execute([$table, $record_id, $action, $changed_by, $old_json, $new_json]);
+            $stmt->execute([$table, $record_id, $action, $changed_by, $old_json, $new_json, date('Y-m-d H:i:s')]);
         } catch (PDOException $e) {
             // Silently fail or log to file? For now, we want strict, so maybe throw?
             // But we don't want to break the app if audit fails?

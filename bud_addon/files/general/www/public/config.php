@@ -1,7 +1,10 @@
 <?php
 // config.php
 // Database Configuration
+// Every time BUD stores or shows is NZ time (see includes/migrations.php)
 date_default_timezone_set('Pacific/Auckland');
+require_once __DIR__ . '/includes/format.php';
+require_once __DIR__ . '/includes/migrations.php';
 
 // The database MUST live in /data inside the Home Assistant add-on.
 // /data is the only directory the Supervisor persists across container
@@ -193,12 +196,45 @@ try {
         $pdo->exec("ALTER TABLE chain_of_custody ADD COLUMN cancel_reason TEXT");
     }
 
+    // 1.0.0: courier deliveries and signed manifests. How a transfer travels
+    // (our staff or a courier), and the scan of the manifest the receiver
+    // signed, kept as a file beside the database (includes/documents.php).
+    // Transfers from before 1.0.0 have no delivery method: our staff took them.
+    $coc_cols = array_column($pdo->query("PRAGMA table_info(chain_of_custody)")->fetchAll(), 'name');
+    if ($coc_cols) {
+        foreach (['delivery_method', 'courier_company', 'tracking_number', 'signed_document', 'signed_document_name'] as $col) {
+            if (!in_array($col, $coc_cols, true)) {
+                $pdo->exec("ALTER TABLE chain_of_custody ADD COLUMN $col TEXT");
+            }
+        }
+    }
+
+    // 1.0.0: a verified receiver's licence number, for the manifest
+    $vr_cols = array_column($pdo->query("PRAGMA table_info(verified_receivers)")->fetchAll(), 'name');
+    if ($vr_cols && !in_array('licence_number', $vr_cols, true)) {
+        $pdo->exec("ALTER TABLE verified_receivers ADD COLUMN licence_number TEXT");
+    }
+
+    // 1.0.0: settings, for now your company's details on the manifest
+    $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
+        name TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME
+    )");
+
+    // 1.0.0: times stored before now were UTC. Convert them to NZ time, once.
+    // This runs after every schema change above (the 0.14 invoiced_at
+    // backfill was UTC too) and before anything below writes a new time.
+    if (!bud_times_are_nz($pdo)) {
+        bud_convert_times_to_nz($pdo);
+    }
+
     // Seed the first verified product on empty installs/upgrades
     $stmt = $pdo->query("SELECT COUNT(*) FROM products");
     $product_count = $stmt->fetchColumn();
     $stmt = null;
     if ($product_count == 0) {
-        $pdo->exec("INSERT INTO products (name) VALUES ('White Sherb')");
+        $pdo->prepare("INSERT INTO products (name, created_at) VALUES ('White Sherb', ?)")->execute([bud_now()]);
     }
 
     // v0.15: Scheduling feature removed — drop its tables and audit entries
@@ -218,9 +254,12 @@ try {
 // Helper function to sanitize output
 function h($string)
 {
-    return htmlspecialchars($string, ENT_QUOTES, 'UTF-8');
+    return htmlspecialchars((string) $string, ENT_QUOTES, 'UTF-8');
 }
 
 // App Details
 define('APP_NAME', 'BUD');
+// The release. Bump it with config.yaml's version and the CHANGELOG heading
+// (tests/check_version.sh checks they match).
+define('BUD_VERSION', '1.0.0');
 ?>

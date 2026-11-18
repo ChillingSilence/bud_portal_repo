@@ -1,4 +1,22 @@
 # Changelog
+## [1.0.0] - 2026-11-18
+BUD now has the Chill Division look and GRACe's layout in its own violet, prints proper shipping manifests, and handles courier deliveries.
+
+### What's new
+- **Shipping manifests and courier deliveries.** Every transfer prints a Universal shipping manifest with your company's details (Administration → Your company). Choose a courier on New transfer, then complete it by uploading the photo or scan of the manifest the receiver signed.
+
+### Important fixes
+- **Cancelled transfers no longer count as stock received.** Re-running a month with a cancellation in it now shows a lower, correct Materials in figure.
+- **Times are NZ time.** Times used to be stored 12 or 13 hours behind, so an entry on the morning of the 1st landed in the previous month. The update converts them once.
+- **Receivers are retired, not deleted.** Past transfers keep their address.
+
+### Changes
+- The menu is now Dashboard, Tracking, Reporting and Administration, like GRACe, and the Dashboard shows what needs doing.
+
+### Minor bug fixes and reliability improvements
+- Names with an apostrophe no longer stop buttons working, and old transfers keep their items' names.
+- The fonts (te reo Māori macrons included) and charts are now part of BUD, so it works with no internet.
+
 ## [0.19.0] - 2026-08-17
 ### Added
 - **Completion review step**: Marking a Chain of Custody transfer as received now shows a confirmation screen before saving — the receiver's name in large text and a preview of the exact signature image that will be stored, with Go Back / Confirm & Save. Catches misspelled names and wrong/blank signatures before the record is committed (a completed record can otherwise only be fixed by cancelling the transfer).

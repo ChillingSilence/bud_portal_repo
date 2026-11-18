@@ -43,6 +43,12 @@ for historical records (e.g. the 0.14 invoicing migration backfills
 already-completed transfers as invoiced). `tests/check_schema.sh` covers the
 fresh path; `tests/upgrade_test.sh` covers the upgrade path.
 
+One-off data fixes (1.0.0 onwards) live in `includes/migrations.php` and are
+recorded in a `data_migrations` table that `config.php` creates on both
+paths, so each fix runs exactly once per database, including a restored
+older backup. `tests/nz_time_test.sh` covers the first one, which converts
+the UTC times BUD stored before 1.0.0 into NZ time.
+
 ## Test suite
 
 All scripts live in `tests/` and are plain bash — run them from the repo
@@ -58,14 +64,25 @@ success.
 | `tests/smoke_test.sh` | Every page renders without PHP errors against a fresh DB; `BUD_DB_PATH` is honoured; the ephemeral-storage guard fires under the Supervisor | php-cli (pdo_sqlite), curl |
 | `tests/audit_undo_test.sh` | `Audit::undo()` (Admin "Undo Last Action") reverses INSERT/UPDATE/DELETE, logs each reversal, and refuses unsafe undos | php-cli (pdo_sqlite) |
 | `tests/s29_import_test.sh` | The Section 29 importer (synthetic data only — real S29 files are confidential and must never enter this repo): all three pharmacy layouts incl. native .xlsx, day-first dates + Excel serial dates, product matching, name splitting, Institution override, junk-column exclusion, batch delete | php-cli (pdo_sqlite, zip, simplexml), curl, sqlite3 |
+| `tests/nz_time_test.sh` | (1.0.0) The one-off conversion of stored UTC times to NZ time: summer and winter offsets, an early-morning entry on the 1st moving into its month, typed dates and S29 file dates left alone, runs once, and new entries stamped in NZ time | php-cli (pdo_sqlite), sqlite3 |
+| `tests/materials_in_test.sh` | (1.0.0) Reports' Materials in counts stock really added and leaves out stock a cancelled transfer put back (tagged, and BUD 0.19's note), the 12-month overview agrees, and the Agency CSV keeps its columns and values | php-cli (pdo_sqlite), curl, sqlite3 |
+| `tests/receivers_test.sh` | (1.0.0) Verified receivers are retired, never deleted: hidden from new transfers, address kept on past ones, brought back, and BUD 0.x's delete action retires too | php-cli (pdo_sqlite), curl, sqlite3 |
+| `tests/courier_test.sh` | (1.0.0) Courier transfers need the courier's name before any stock comes off, completing by uploading the signed manifest keeps only a real photo or PDF (by its first bytes), stores it beside the database and never under the web folder, `coc_document.php` serves it back only for its transfer, on-screen signatures still work, and Your company and receiver licence numbers save | php-cli (pdo_sqlite), curl, sqlite3 |
+| `tests/check_version.sh` | `config.yaml`, `BUD_VERSION` in config.php and the top CHANGELOG heading agree | bash only |
+| `tests/wording_test.sh` | (1.0.0) The brand guide on every page: tab title matches the heading, menu items and section cards match the pages they open, sentence case, no em dashes, semicolons or emoji, and nothing loaded from the internet (`tests/wording_check.php`) | php-cli (pdo_sqlite, dom), curl, sqlite3 |
 | `tests/docker_persistence_test.sh` | Full container: DB created on the `/data` volume only, and data survives container destruction/recreation | docker, curl |
 
 Run everything that doesn't need Docker:
 
 ```bash
-bash tests/lint.sh && bash tests/check_db_storage.sh && \
-bash tests/check_schema.sh && bash tests/smoke_test.sh
+for t in lint check_db_storage check_schema check_version smoke_test upgrade_test \
+    audit_undo_test custody_test s29_import_test nz_time_test materials_in_test \
+    receivers_test courier_test wording_test; do bash tests/$t.sh || break; done
 ```
+
+The HTTP tests each start PHP's built-in server on their own port (8094 to
+8099). If one of those is busy, set its `*_PORT` variable (for example
+`CUSTODY_PORT=8443`).
 
 Run the full Docker persistence test (a few minutes on first build):
 
@@ -86,6 +103,11 @@ BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.21 PORT=9000 bash tests/docker_pe
 - **Persistent storage guard** — `tests/check_db_storage.sh`.
 - **SQLite schema validation** — `tests/check_schema.sh`.
 - **Page smoke test** — `tests/smoke_test.sh`.
+- **NZ time, Materials in, receivers and courier tests** run
+  `tests/nz_time_test.sh`, `tests/materials_in_test.sh`,
+  `tests/receivers_test.sh` and `tests/courier_test.sh` (1.0.0).
+- **Wording and version check** runs `tests/check_version.sh` and
+  `tests/wording_test.sh`.
 - **Home Assistant add-on lint** — [frenck/action-addon-linter](https://github.com/frenck/action-addon-linter)
   validates `bud_addon/config.yaml` against the official add-on spec.
 - **Docker /data persistence test** — `tests/docker_persistence_test.sh` on
@@ -103,17 +125,19 @@ installed instances only see an update when the version changes.
 
 ## Manual testing on a real Home Assistant instance
 
-1. In HA: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**, add a
-   fork/branch of this repo (or use the *Local add-ons* folder: copy
-   `bud_addon/` into `/addons/` on the HA host).
+1. In HA: **Settings → Apps → App store → ⋮ → Repositories** (Settings →
+   Add-ons before Home Assistant 2026.2), add a fork/branch of this repo (or
+   use the local apps folder: copy `bud_addon/` into `/addons/` on the HA
+   host).
 2. Install / update **BUD Portal** and open the Web UI via ingress.
 3. Persistence spot-check: add a supplier or stock item, then restart the
-   add-on (**Settings → Add-ons → BUD Portal → Restart**) and confirm the
+   app (**Settings → Apps → BUD Portal → Restart**) and confirm the
    data is still there. For the strongest check, uninstall is the only thing
    that removes `/data` — updates and rebuilds must never lose data.
 4. Backups: the HA backup system snapshots `/data` automatically when a
-   backup includes the add-on. The Admin page (triple-click the dot in the
-   nav logo) also offers `.db` download and JSON export.
+   backup includes the app. The admin tools (three clicks on the version
+   number under "BUD" in the app bar) also offer a `.db` download and JSON
+   export.
 
 ## Local development without Docker
 
@@ -125,3 +149,33 @@ BUD_DB_PATH=/tmp/bud-dev.db php -S 127.0.0.1:8420
 Without `BUD_DB_PATH` (and outside the container), the app falls back to
 `bud_addon/files/general/www/public/database/bud_inventory.db` — that file is
 git-ignored territory; never commit it (CI's storage guard will catch it).
+
+For a BUD with something in it, seed a throwaway database with made-up demo
+data first: a company, receivers, stock, transfers in every state (one a
+courier delivery with its signed manifest), destruction entries and a
+Section 29 import. Dates are relative to today. It never touches `/data`,
+and `--force` starts it again:
+
+```bash
+BUD_DB_PATH=/tmp/bud-demo/bud.db php tests/seed_demo_data.php --force
+cd bud_addon/files/general/www/public
+BUD_DB_PATH=/tmp/bud-demo/bud.db php -S 127.0.0.1:8420
+```
+
+## Retaking the screenshots
+
+The README and the user guide (`bud_addon/DOCS.md`) show the screenshots in
+`docs/screenshots/`. When a release changes how a page looks, retake them:
+
+1. Seed and serve the demo data as above (port 8420).
+2. On Windows, from the repo root in PowerShell, run
+   `powershell -ExecutionPolicy Bypass -File .\tests\capture_screenshots.ps1`.
+   It drives headless Microsoft Edge: desktop shots 1280 px wide, phone
+   shots a 390 x 844 screen at 2x, and some open a pop-up or print the
+   shipping manifest first. Add `-Only name,name` to retake a few.
+3. Look through them before committing. They're public, so only ever demo
+   data: no real receivers, patients or cultivar names.
+
+The user guide links the images from GitHub's `main` branch, so Home
+Assistant's Documentation tab shows new ones once the pull request is
+merged.

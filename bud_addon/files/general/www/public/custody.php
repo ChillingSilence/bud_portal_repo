@@ -1,8 +1,11 @@
 <?php
 require_once 'config.php';
 require_once 'includes/audit.php';
+require_once 'includes/settings.php';
+require_once 'includes/documents.php';
 
 $message = '';
+$message_error = false;
 
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -17,6 +20,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $origin = $_POST['origin'];
             $receiver_id = intval($_POST['receiver_id'] ?? 0);
             $transported_by = $_POST['transported_by'];
+
+            // How it travels: our staff, or a courier (printed on the manifest).
+            // Checked before any stock comes off.
+            $delivery_method = ($_POST['delivery_method'] ?? '') === 'courier' ? 'courier' : 'staff';
+            $courier_company = $delivery_method === 'courier' ? trim($_POST['courier_company'] ?? '') : '';
+            $tracking_number = $delivery_method === 'courier' ? trim($_POST['tracking_number'] ?? '') : '';
+            if ($delivery_method === 'courier' && $courier_company === '') {
+                throw new Exception("Say which courier is taking it. Nothing was changed.");
+            }
 
             // Resolve destination from verified_receivers
             $dest_stmt = $pdo->prepare("SELECT name, address FROM verified_receivers WHERE id = ?");
@@ -92,15 +104,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $stmt = $pdo->prepare("INSERT INTO chain_of_custody
-                (form_date, origin, destination, receiver_id, transported_by, coc_items, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'In Progress')");
-            $stmt->execute([$date, $origin, $destination, $receiver_id ?: null, $transported_by, json_encode($coc_items)]);
+                (form_date, origin, destination, receiver_id, transported_by, coc_items, status, created_at,
+                 delivery_method, courier_company, tracking_number)
+                VALUES (?, ?, ?, ?, ?, ?, 'In Progress', ?, ?, ?, ?)");
+            $stmt->execute([$date, $origin, $destination, $receiver_id ?: null, $transported_by, json_encode($coc_items), bud_now(),
+                $delivery_method, $courier_company ?: null, $tracking_number ?: null]);
             $id = $pdo->lastInsertId();
 
             Audit::log($pdo, 'chain_of_custody', $id, 'INSERT', null, $_POST);
-            $message = "Transfer initiated. Stock deducted. Mark as received when the destination signs.";
+            $message = $delivery_method === 'courier'
+                ? "Started transfer #$id and took its stock off. Print its shipping manifest to go with the courier, and upload the signed copy when it comes back."
+                : "Started transfer #$id and took its stock off. Print its shipping manifest, and complete it when it's signed for.";
         } catch (Exception $e) {
-            $message = "Error: " . $e->getMessage();
+            $message = "Couldn't start the transfer: " . $e->getMessage();
+            $message_error = true;
         }
     }
 
@@ -111,35 +128,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $coc_id = intval($_POST['coc_id']);
             $received_by = trim($_POST['received_by'] ?? '');
-            $signature = $_POST['signature_data'] ?? '';
+            // Signed here on screen, or the manifest the receiver signed,
+            // photographed or scanned and uploaded (a courier delivery)
+            $sign_method = ($_POST['sign_method'] ?? '') === 'document' ? 'document' : 'screen';
+            $signature = $sign_method === 'screen' ? ($_POST['signature_data'] ?? '') : '';
+            $has_upload = isset($_FILES['signed_document']) && ($_FILES['signed_document']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
 
-            if (!$coc_id || !$received_by || !$signature) {
-                $message = "Error: Please provide the receiver name and signature.";
+            if (!$coc_id || !$received_by) {
+                $message = "The receiver's name is needed.";
+                $message_error = true;
+            } elseif ($sign_method === 'screen' && !$signature) {
+                $message = "The receiver's name and signature are both needed.";
+                $message_error = true;
+            } elseif ($sign_method === 'document' && !$has_upload) {
+                $message = "Upload the photo or scan of the signed manifest.";
+                $message_error = true;
             } else {
-                $old_stmt = $pdo->prepare("SELECT received_by, signature_image, status, completed_at
+                $old_stmt = $pdo->prepare("SELECT received_by, signature_image, signed_document, signed_document_name,
+                    tracking_number, status, completed_at
                     FROM chain_of_custody WHERE id = ? AND status = 'In Progress'");
                 $old_stmt->execute([$coc_id]);
                 $old_coc = $old_stmt->fetch();
                 $old_stmt = null;
 
                 if (!$old_coc) {
-                    $message = "Transfer #$coc_id not found or is no longer In Progress.";
+                    $message = "Transfer #$coc_id wasn't found, or it's no longer in progress.";
+                    $message_error = true;
                 } else {
+                    $document = ['file' => null, 'name' => null];
+                    if ($sign_method === 'document') {
+                        // Throws with a message for the person uploading it
+                        $document = bud_store_document($_FILES['signed_document'], $coc_id);
+                    }
+                    $tracking = trim($_POST['tracking_number'] ?? '');
+                    $tracking = $tracking !== '' ? $tracking : $old_coc['tracking_number'];
+
                     $stmt = $pdo->prepare("UPDATE chain_of_custody
-                        SET status = 'Completed', received_by = ?, signature_image = ?, completed_at = CURRENT_TIMESTAMP
+                        SET status = 'Completed', received_by = ?, signature_image = ?, signed_document = ?,
+                            signed_document_name = ?, tracking_number = ?, completed_at = ?
                         WHERE id = ? AND status = 'In Progress'");
-                    $stmt->execute([$received_by, $signature, $coc_id]);
+                    $stmt->execute([$received_by, $signature ?: null, $document['file'], $document['name'], $tracking, bud_now(), $coc_id]);
                     // Old values recorded so the Admin "Undo Last Action" can revert a completion
                     Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', $old_coc, [
                         'received_by' => $received_by,
-                        'signature_image' => $signature,
+                        'signature_image' => $signature ?: null,
+                        'signed_document' => $document['file'],
                         'status' => 'Completed',
                     ]);
-                    $message = "Transfer marked as received and completed.";
+                    $message = $sign_method === 'document'
+                        ? "Transfer #$coc_id is complete, with the signed manifest kept on its record."
+                        : "Transfer #$coc_id is complete and signed for.";
                 }
             }
         } catch (Exception $e) {
-            $message = "Error: " . $e->getMessage();
+            $message = "Couldn't complete the transfer: " . $e->getMessage();
+            $message_error = true;
         }
     }
 
@@ -160,9 +203,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $coc_stmt = null;
 
             if (!$coc) {
-                $message = "Transfer #$coc_id not found, already cancelled, or already invoiced.";
+                $message = "Transfer #$coc_id wasn't found, or it's already cancelled or invoiced.";
+                $message_error = true;
             } elseif ($coc['status'] === 'Completed' && $cancel_reason === '') {
-                $message = "Error: Please give a reason for cancelling a completed transfer.";
+                $message = "Give a reason for cancelling a completed transfer.";
+                $message_error = true;
             } else {
                 // Restore the stock that was deducted at initiation
                 $items = json_decode($coc['coc_items'], true) ?: [];
@@ -199,6 +244,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $new_stock_stmt->execute([$component_id]);
                                 $new_stock = $new_stock_stmt->fetch();
                                 $new_stock['adjustment_notes'] = "Restored via Bundle: $b_name (Cancelled COC #$coc_id)";
+                                $new_stock['movement'] = 'transfer_cancelled';
                                 Audit::log($pdo, 'stock_items', $component_id, 'UPDATE', $old_stock, $new_stock);
                             }
                         }
@@ -214,21 +260,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $new_stock_stmt->execute([$item_id]);
                             $new_stock = $new_stock_stmt->fetch();
                             $new_stock['adjustment_notes'] = "Restored via Cancelled COC #$coc_id";
+                            $new_stock['movement'] = 'transfer_cancelled';
                             Audit::log($pdo, 'stock_items', $item_id, 'UPDATE', $old_stock, $new_stock);
                         }
                     }
                 }
 
                 $pdo->prepare("UPDATE chain_of_custody
-                    SET status = 'Cancelled', cancelled_at = CURRENT_TIMESTAMP, cancel_reason = ?
-                    WHERE id = ? AND status = ?")->execute([$cancel_reason !== '' ? $cancel_reason : null, $coc_id, $coc['status']]);
+                    SET status = 'Cancelled', cancelled_at = ?, cancel_reason = ?
+                    WHERE id = ? AND status = ?")->execute([bud_now(), $cancel_reason !== '' ? $cancel_reason : null, $coc_id, $coc['status']]);
                 Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE',
                     ['status' => $coc['status'], 'cancel_reason' => null],
                     ['status' => 'Cancelled', 'cancel_reason' => $cancel_reason]);
-                $message = "Transfer #$coc_id cancelled. Deducted stock has been restored.";
+                $message = "Cancelled transfer #$coc_id and put its stock back.";
             }
         } catch (Exception $e) {
-            $message = "Error cancelling transfer: " . $e->getMessage();
+            $message = "Couldn't cancel the transfer: " . $e->getMessage();
+            $message_error = true;
         }
     }
 
@@ -238,25 +286,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif ($action === 'mark_invoiced') {
         try {
             $coc_id = intval($_POST['coc_id']);
+            $invoiced_at = bud_now();
             $stmt = $pdo->prepare("UPDATE chain_of_custody
-                SET invoiced_at = CURRENT_TIMESTAMP
+                SET invoiced_at = ?
                 WHERE id = ? AND status = 'Completed' AND invoiced_at IS NULL");
-            $stmt->execute([$coc_id]);
+            $stmt->execute([$invoiced_at, $coc_id]);
 
             if ($stmt->rowCount() > 0) {
-                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', ['invoiced_at' => null], ['invoiced_at' => date('Y-m-d H:i:s')]);
-                $message = "Transfer #$coc_id marked as invoiced.";
+                Audit::log($pdo, 'chain_of_custody', $coc_id, 'UPDATE', ['invoiced_at' => null], ['invoiced_at' => $invoiced_at]);
+                $message = "Marked transfer #$coc_id as invoiced.";
             } else {
-                $message = "Transfer #$coc_id is not completed or was already invoiced.";
+                $message = "Transfer #$coc_id isn't complete, or it's already invoiced.";
+                $message_error = true;
             }
         } catch (Exception $e) {
-            $message = "Error: " . $e->getMessage();
+            $message = "Couldn't mark the transfer as invoiced: " . $e->getMessage();
+            $message_error = true;
         }
     }
 }
 
 // Fetch History
-$history = $pdo->query("SELECT * FROM chain_of_custody ORDER BY created_at DESC LIMIT 50")->fetchAll();
+$history = $pdo->query("SELECT * FROM chain_of_custody ORDER BY id DESC LIMIT 50")->fetchAll();
 
 // Fetch controlled substances only
 $stock_options = $pdo->query("SELECT id, name, sku, unit FROM stock_items WHERE quantity > 0 AND is_controlled = 1 ORDER BY name ASC")->fetchAll();
@@ -267,245 +318,118 @@ $bundle_options = $pdo->query("SELECT id, name, sku FROM product_bundles WHERE i
 // Fetch verified receivers for dropdown
 $receivers = $pdo->query("SELECT id, name, contact_person, address FROM verified_receivers WHERE is_active = 1 ORDER BY name ASC")->fetchAll();
 
-// Build JS item name lookup map
+// Item names for the pop-ups, shipping manifests and records. Every item and
+// bundle, not only the ones on offer, so an old transfer still shows its
+// item's name after that stock runs out or the bundle is retired.
 $item_name_map = [];
-foreach ($stock_options as $s) {
-    $item_name_map[(string) $s['id']] = $s['name'] . ' (' . $s['sku'] . ')';
+foreach ($pdo->query("SELECT id, name, sku FROM stock_items")->fetchAll() as $s) {
+    $item_name_map[(string) $s['id']] = $s['name'] . ($s['sku'] ? ' (' . $s['sku'] . ')' : '');
 }
-foreach ($bundle_options as $b) {
-    $item_name_map['bundle_' . $b['id']] = $b['name'] . ' (' . $b['sku'] . ')';
+foreach ($pdo->query("SELECT id, name, sku FROM product_bundles")->fetchAll() as $b) {
+    $item_name_map['bundle_' . $b['id']] = $b['name'] . ($b['sku'] ? ' (' . $b['sku'] . ')' : '');
 }
 
-// Build JS receiver map (id -> {contact_person, address})
+// Receivers by id (contact person, address), retired ones too, so a slip
+// for a receiver retired since still has the address
 $receiver_map = [];
-foreach ($receivers as $r) {
+foreach ($pdo->query("SELECT id, name, contact_person, address, licence_number FROM verified_receivers")->fetchAll() as $r) {
     $receiver_map[$r['id']] = [
         'contact' => $r['contact_person'],
         'address' => $r['address'],
         'name' => $r['name'],
+        'licence' => $r['licence_number'],
     ];
 }
+
+// Your company's details, printed on every shipping manifest
+$company = bud_company($pdo);
+$company_missing = trim($company['name']) === '' || trim($company['email']) === '';
+
+// Every transfer on the page, by id, for the pop-ups (a signature can be
+// large, so it's written once here rather than into every button)
+$transfers_by_id = [];
+foreach ($history as $row) {
+    $transfers_by_id[$row['id']] = $row;
+}
+$json_flags = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT;
+
+$pageTitle = 'Chain of custody';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
+    <main class="container">
+        <hgroup class="page-header">
+            <h1>Chain of custody</h1>
+            <p>Transfers of controlled stock. Stock comes off when a transfer starts, a shipping manifest goes with it, and the receiver signs for it when it arrives.</p>
+        </hgroup>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= APP_NAME ?> - Chain of Custody</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <style>
-        #complete-submit:disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
+        <?= bud_message($message, $message_error) ?>
 
-        #signature-pad,
-        #sig-pad-complete {
-            border: 2px dashed var(--card-border);
-            border-radius: 0.5rem;
-            background: rgba(255, 255, 255, 0.5);
-            cursor: crosshair;
-            width: 100%;
-        }
-
-        .status-badge {
-            display: inline-block;
-            padding: 0.2rem 0.6rem;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .status-complete {
-            background: rgba(16, 185, 129, 0.2);
-            color: #10b981;
-        }
-
-        .status-progress {
-            background: rgba(234, 179, 8, 0.2);
-            color: #eab308;
-        }
-
-        .status-invoice {
-            background: rgba(59, 130, 246, 0.2);
-            color: #3b82f6;
-        }
-
-        .status-cancelled {
-            background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
-        }
-    </style>
-</head>
-
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <div
-            style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.25rem;">
-            <h1 style="margin:0;">Chain of Custody</h1>
-            <a href="receivers.php" style="font-size: 0.9rem; color: var(--primary-color);">⚙️ Manage Verified
-                Receivers</a>
-        </div>
-
-        <?php if ($message): ?>
-            <div class="glass-panel" style="margin-bottom: 1rem; border-color: var(--accent-color);">
-                <?= h($message) ?>
+        <?php if ($company_missing): ?>
+            <div class="callout callout--note">
+                <p>Your company's name and the email for arrival notices aren't set yet, so shipping manifests print blank lines for them. <a href="company.php">Add your company's details</a>.</p>
             </div>
         <?php endif; ?>
 
-        <button
-            onclick="document.getElementById('cocForm').style.display = document.getElementById('cocForm').style.display === 'none' ? 'block' : 'none'"
-            class="btn" style="margin-bottom: 1rem;">
-            + New Transfer Form
-        </button>
-
-        <!-- Phase 1 Form -->
-        <div id="cocForm" class="glass-panel" style="display: none; margin-bottom: 2rem;">
-            <h3>Initiate Transfer</h3>
-            <p style="color: var(--text-muted, #aaa); font-size: 0.9rem;">Stock will be deducted immediately. The
-                receiver will sign when you complete the transfer on-site.</p>
-            <form method="POST" id="transferForm">
-                <input type="hidden" name="action" value="create_coc">
-
-                <div class="grid">
-                    <div>
-                        <label>Date</label>
-                        <input type="date" name="date" value="<?= date('Y-m-d') ?>" required>
-                    </div>
-                </div>
-
-                <div class="grid">
-                    <div>
-                        <label>Origin</label>
-                        <input type="text" name="origin" value="Main Facility" required>
-                    </div>
-                    <div>
-                        <label>Destination <a href="receivers.php" style="font-size:0.8rem; margin-left:0.5rem;">(+ add
-                                receiver)</a></label>
-                        <?php if (empty($receivers)): ?>
-                            <p style="color: #eab308; font-size: 0.9rem;">⚠️ No verified receivers yet. <a
-                                    href="receivers.php">Add one first.</a></p>
-                        <?php else: ?>
-                            <select name="receiver_id" id="receiver_select" onchange="updateReceiverHint(this.value)"
-                                required>
-                                <option value="">Select Destination...</option>
-                                <?php foreach ($receivers as $r): ?>
-                                    <option value="<?= $r['id'] ?>">
-                                        <?= h($r['name']) ?>        <?= $r['contact_person'] ? ' — ' . h($r['contact_person']) : '' ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                            <small id="receiver-address-hint" style="color: var(--text-muted, #aaa);"></small>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-                <label>Transported By (Staff Name)</label>
-                <input type="text" name="transported_by" required>
-
-                <h4>Items Transferred</h4>
-                <div id="items-container">
-                    <div class="item-row grid" style="margin-bottom: 0.5rem;">
-                        <div>
-                            <select name="item_id[]" required>
-                                <option value="">Select Item or Bundle</option>
-                                <optgroup label="⚠️ Controlled Substances">
-                                    <?php foreach ($stock_options as $opt): ?>
-                                        <option value="<?= $opt['id'] ?>"><?= h($opt['name']) ?> (<?= h($opt['sku']) ?>)
-                                        </option>
-                                    <?php endforeach; ?>
-                                </optgroup>
-                                <optgroup label="📦 Bundles">
-                                    <?php foreach ($bundle_options as $bundle): ?>
-                                        <option value="bundle_<?= $bundle['id'] ?>"><?= h($bundle['name']) ?>
-                                            (<?= h($bundle['sku']) ?>)</option>
-                                    <?php endforeach; ?>
-                                </optgroup>
-                            </select>
-                        </div>
-                        <div>
-                            <input type="text" name="batch[]" placeholder="Batch/Lot #">
-                        </div>
-                        <div>
-                            <input type="number" step="0.01" name="qty[]" placeholder="Qty" required>
-                        </div>
-                    </div>
-                </div>
-                <button type="button" class="btn btn-outline-primary" onclick="addItemRow()">+
-                    Add Another Item</button>
-
-                <div style="margin-top: 2rem;">
-                    <button type="submit" class="btn">Initiate Transfer & Deduct Stock</button>
-                </div>
-            </form>
+        <div class="page-actions">
+            <button type="button" onclick="openNewTransfer()">New transfer</button>
+            <a href="receivers.php" role="button" class="secondary outline">Verified receivers</a>
         </div>
 
-        <!-- Transfers Table -->
-        <div class="glass-panel">
-            <h3>Recent Transfers</h3>
-            <div class="table-responsive">
-                <table>
+        <h2 class="section-title">Recent transfers</h2>
+        <?php if (empty($history)): ?>
+            <p class="empty-note">No transfers yet.</p>
+        <?php else: ?>
+            <div class="table-wrap">
+                <table class="wide-table">
                     <thead>
                         <tr>
+                            <th>#</th>
                             <th>Date</th>
                             <th>To</th>
-                            <th>Transported By</th>
+                            <th>Sent by</th>
                             <th>Status</th>
-                            <th>Items</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($history as $row): ?>
+                        <?php foreach ($history as $row):
+                            $items = json_decode($row['coc_items'], true) ?: [];
+                            $id = (int) $row['id']; ?>
                             <tr>
-                                <td><?= h($row['form_date']) ?></td>
-                                <td><?= h($row['destination']) ?></td>
-                                <td><?= h($row['transported_by']) ?></td>
+                                <td class="nowrap"><?= $id ?></td>
+                                <td class="nowrap"><?= h(bud_date($row['form_date'])) ?></td>
+                                <td class="cell-name">
+                                    <?= h($row['destination']) ?>
+                                    <small><?= h(bud_plural(count($items), 'item')) ?></small>
+                                </td>
+                                <td>
+                                    <?= h($row['transported_by']) ?>
+                                    <?php if (($row['delivery_method'] ?? '') === 'courier'): ?><small>Courier, <?= h($row['courier_company']) ?></small><?php endif; ?>
+                                </td>
                                 <td>
                                     <?php if ($row['status'] === 'Completed'): ?>
-                                        <span class="status-badge status-complete">✓ Completed</span>
+                                        <span class="badge">Completed</span>
                                         <?php if (empty($row['invoiced_at'])): ?>
-                                            <span class="status-badge status-invoice">🧾 Needs Invoice</span>
+                                            <span class="badge badge--todo">Needs invoice</span>
                                         <?php endif; ?>
                                     <?php elseif ($row['status'] === 'Cancelled'): ?>
-                                        <span class="status-badge status-cancelled">✕ Cancelled</span>
+                                        <span class="badge badge--danger">Cancelled</span>
                                     <?php else: ?>
-                                        <span class="status-badge status-progress">⏳ In Progress</span>
+                                        <span class="badge badge--progress">In progress</span>
                                     <?php endif; ?>
                                 </td>
-                                <td>
-                                    <?php
-                                    $items = json_decode($row['coc_items'], true);
-                                    echo count($items) . ' item' . (count($items) !== 1 ? 's' : '');
-                                    ?>
-                                </td>
-                                <td style="white-space: nowrap;">
+                                <td class="row-actions row-actions--wrap">
                                     <?php if ($row['status'] === 'In Progress'): ?>
-                                        <button onclick='openComplete(<?= json_encode($row) ?>)' class="btn"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #10b981;">Complete</button>
-                                        <button onclick='printPackingSlip(<?= json_encode($row) ?>)' class="btn btn-outline-primary"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">🖨
-                                            Slip</button>
-                                        <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn btn-outline-danger"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">✕
-                                            Cancel</button>
+                                        <button type="button" data-transfer-action="complete" data-id="<?= $id ?>">Complete</button>
+                                        <button type="button" class="secondary outline" data-transfer-action="manifest" data-id="<?= $id ?>">Shipping manifest</button>
+                                        <button type="button" class="danger outline" data-transfer-action="cancel" data-id="<?= $id ?>">Cancel</button>
                                     <?php elseif ($row['status'] === 'Cancelled'): ?>
-                                        <button onclick='viewCoc(<?= json_encode($row) ?>)' class="btn"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">View</button>
+                                        <button type="button" class="secondary outline" data-transfer-action="view" data-id="<?= $id ?>">View</button>
                                     <?php else: ?>
-                                        <button onclick='viewCoc(<?= json_encode($row) ?>)' class="btn"
-                                            style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">View</button>
+                                        <button type="button" class="secondary outline" data-transfer-action="view" data-id="<?= $id ?>">View</button>
                                         <?php if (empty($row['invoiced_at'])): ?>
-                                            <button onclick='openInvoice(<?= json_encode($row) ?>)' class="btn"
-                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem; background: #3b82f6;">🧾
-                                                Invoiced</button>
-                                            <button onclick='openCancel(<?= json_encode($row) ?>)' class="btn btn-outline-danger"
-                                                style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">✕
-                                                Cancel</button>
+                                            <button type="button" class="secondary outline" data-transfer-action="invoice" data-id="<?= $id ?>">Mark as invoiced</button>
+                                            <button type="button" class="danger outline" data-transfer-action="cancel" data-id="<?= $id ?>">Cancel</button>
                                         <?php endif; ?>
                                     <?php endif; ?>
                                 </td>
@@ -514,407 +438,521 @@ foreach ($receivers as $r) {
                     </tbody>
                 </table>
             </div>
+        <?php endif; ?>
+    </main>
+
+    <!-- New transfer -->
+    <dialog id="newTransferDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3>New transfer</h3>
+            </header>
+            <p class="modal-text">The stock comes off as soon as you start the transfer. Print its shipping manifest to go with it, and the receiver signs for it when it arrives.</p>
+            <?php if (empty($receivers)): ?>
+                <div class="callout callout--warning">
+                    <p>There are no verified receivers yet. <a href="receivers.php">Add one first</a>, then come back to start the transfer.</p>
+                </div>
+            <?php else: ?>
+                <form method="POST" id="transferForm">
+                    <input type="hidden" name="action" value="create_coc">
+                    <div class="form-grid form-grid--2">
+                        <label>Date
+                            <input type="date" name="date" value="<?= h(date('Y-m-d')) ?>" required>
+                        </label>
+                        <label>Sent by
+                            <input type="text" name="transported_by" placeholder="The staff member sending it" required>
+                        </label>
+                        <label>From
+                            <input type="text" name="origin" value="Main Facility" required>
+                        </label>
+                        <label>To
+                            <select name="receiver_id" id="receiver_select" required>
+                                <option value="">Choose a verified receiver</option>
+                                <?php foreach ($receivers as $r): ?>
+                                    <option value="<?= h($r['id']) ?>"><?= h($r['name']) ?><?= $r['contact_person'] ? ' (' . h($r['contact_person']) . ')' : '' ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                    </div>
+                    <small class="field-hint" id="receiver-address-hint"></small>
+
+                    <fieldset class="choice-row">
+                        <legend>Delivery</legend>
+                        <label><input type="radio" name="delivery_method" value="staff" checked> Our staff take it</label>
+                        <label><input type="radio" name="delivery_method" value="courier"> A courier takes it</label>
+                    </fieldset>
+                    <div class="form-grid form-grid--2" id="courier-fields" hidden>
+                        <label>Courier company
+                            <input type="text" name="courier_company" id="courier_company" placeholder="The courier company's name">
+                        </label>
+                        <label>Tracking number
+                            <input type="text" name="tracking_number" placeholder="If you have it yet">
+                        </label>
+                    </div>
+
+                    <h4>Items</h4>
+                    <div id="items-container"></div>
+                    <button type="button" class="secondary outline add-row" onclick="addItemRow()">Add another item</button>
+
+                    <footer>
+                        <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                        <button type="submit">Start transfer</button>
+                    </footer>
+                </form>
+            <?php endif; ?>
+        </article>
+    </dialog>
+
+    <template id="itemRowTemplate">
+        <div class="repeat-row">
+            <label>Item or bundle
+                <select name="item_id[]" required>
+                    <option value="">Choose controlled stock or a bundle</option>
+                    <optgroup label="Controlled stock">
+                        <?php foreach ($stock_options as $opt): ?>
+                            <option value="<?= h($opt['id']) ?>"><?= h($opt['name']) ?><?= $opt['sku'] ? ' (' . h($opt['sku']) . ')' : '' ?></option>
+                        <?php endforeach; ?>
+                    </optgroup>
+                    <optgroup label="Bundles">
+                        <?php foreach ($bundle_options as $bundle): ?>
+                            <option value="bundle_<?= h($bundle['id']) ?>"><?= h($bundle['name']) ?><?= $bundle['sku'] ? ' (' . h($bundle['sku']) . ')' : '' ?></option>
+                        <?php endforeach; ?>
+                    </optgroup>
+                </select>
+            </label>
+            <label>Batch or lot
+                <input type="text" name="batch[]" placeholder="For example, B2611-01">
+            </label>
+            <label>Quantity
+                <input type="number" step="0.01" min="0.01" name="qty[]" required>
+            </label>
+            <button type="button" class="secondary outline remove-row" onclick="removeItemRow(this)" aria-label="Take this item off the transfer">Remove</button>
         </div>
-    </div>
+    </template>
 
-    <!-- View Modal (Completed) -->
-    <div id="viewModal"
-        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel"
-            style="margin: 5vh auto; max-width: 800px; background: white; color: black; position: relative;">
-            <button onclick="document.getElementById('viewModal').style.display='none'"
-                style="position: absolute; right: 1rem; top: 1rem; background: transparent; color: black; font-weight: bold; border: 1px solid black;">✕
-                Close</button>
-            <div id="coc-content" style="padding: 2rem;">
-                <!-- Populated by JS -->
-            </div>
-        </div>
-    </div>
-
-    <!-- Complete Modal (In Progress) -->
-    <div id="completeModal"
-        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel modal-panel" style="margin: 5vh auto; max-width: 700px; position: relative;">
-            <button onclick="document.getElementById('completeModal').style.display='none'" class="btn btn-outline-muted"
-                style="position: absolute; right: 1rem; top: 1rem;">✕
-                Close</button>
-            <h3>Complete Transfer</h3>
-            <div id="complete-summary" class="modal-summary" style="margin-bottom: 1.5rem;">
-            </div>
-
-            <form method="POST" id="completeForm">
+    <!-- Complete a transfer: who received it and how they signed, then a review -->
+    <dialog id="completeDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3>Complete transfer</h3>
+            </header>
+            <div id="complete-summary" class="modal-summary"></div>
+            <form method="POST" id="completeForm" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="complete_coc">
                 <input type="hidden" name="coc_id" id="complete_coc_id">
                 <input type="hidden" name="signature_data" id="complete_signature_data">
 
                 <div id="complete-entry">
-                    <label>Received By (print name)</label>
-                    <input type="text" name="received_by" id="complete_received_by" required
-                        placeholder="Receiver's full name">
+                    <fieldset class="choice-row">
+                        <legend>How it was signed for</legend>
+                        <label><input type="radio" name="sign_method" value="screen" checked> Signed here on screen</label>
+                        <label><input type="radio" name="sign_method" value="document"> Signed manifest, uploaded</label>
+                    </fieldset>
 
-                    <h4 style="margin-top: 1.5rem;">Receiver Signature</h4>
-                    <p><small>Sign below to acknowledge receipt.</small></p>
-                    <canvas id="sig-pad-complete" width="600" height="200"></canvas>
-                    <button type="button" onclick="clearCompleteSignature()"
-                        style="font-size: 0.8rem; margin-top: 0.5rem;">Clear Signature</button>
+                    <label>Received by (print name)
+                        <input type="text" name="received_by" id="complete_received_by" placeholder="The receiver's full name" required>
+                    </label>
 
-                    <div style="margin-top: 2rem;">
-                        <button type="button" class="btn" id="complete-submit" disabled
-                            style="background: #10b981;"
-                            onclick="reviewCompletion()">Review &amp; Save →</button>
-                        <p id="complete-submit-hint" style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
-                            Enter the receiver's name and have them sign above to continue.</p>
+                    <div id="sign-screen">
+                        <p class="modal-text">The receiver signs below to acknowledge receipt.</p>
+                        <canvas id="sig-pad-complete" class="signature-pad" width="600" height="200" aria-label="Signature box"></canvas>
+                        <button type="button" class="secondary outline btn-small" onclick="clearCompleteSignature()">Clear signature</button>
                     </div>
+
+                    <div id="sign-document" hidden>
+                        <p class="modal-text">For a courier delivery: the shipping manifest the receiver signed, photographed or scanned. Put the name they printed on it above.</p>
+                        <label>Signed manifest
+                            <input type="file" name="signed_document" id="signed_document" accept="image/jpeg,image/png,image/webp,application/pdf,.pdf">
+                        </label>
+                        <small class="field-hint">A photo (JPG, PNG or WebP) or a PDF, up to 20 MB. A big phone photo is made smaller before it uploads.</small>
+                        <label>Tracking number
+                            <input type="text" name="tracking_number" id="complete_tracking" placeholder="Optional">
+                        </label>
+                    </div>
+
+                    <p class="modal-text field-note" id="complete-submit-hint"></p>
+                    <footer>
+                        <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                        <button type="button" id="complete-submit" disabled onclick="reviewCompletion()">Review and save</button>
+                    </footer>
                 </div>
 
-                <!-- Review step: shows exactly what will be saved before committing -->
-                <div id="complete-review" style="display: none;">
-                    <h4>Confirm Receipt</h4>
-                    <p style="margin-bottom: 0.25rem;">Received by:</p>
-                    <p id="review-name" style="font-size: 1.4rem; font-weight: 700; margin: 0 0 1rem;"></p>
-                    <p style="margin-bottom: 0.25rem;">Signature to be saved:</p>
-                    <img id="review-signature" alt="Signature preview"
-                        style="border: 1px solid var(--outline-muted-border); border-radius: 0.5rem; background: #fff; max-width: 100%; height: auto;">
-                    <p style="font-size: 0.85rem; opacity: 0.75; margin-top: 0.75rem;">
-                        Check the name is spelled correctly and the signature is right — a completed
-                        record can only be fixed by cancelling the whole transfer.</p>
-                    <div style="display: flex; gap: 1rem; margin-top: 1.5rem;">
-                        <button type="button" class="btn btn-outline-muted" onclick="backToCompleteEntry()">←
-                            Go Back</button>
-                        <button type="submit" class="btn" style="background: #10b981;">✓ Confirm &amp;
-                            Save</button>
-                    </div>
+                <!-- Review: exactly what will be saved, before it's committed -->
+                <div id="complete-review" hidden>
+                    <p class="modal-text">Received by</p>
+                    <p id="review-name" class="review-name"></p>
+                    <p class="modal-text" id="review-what">Signature to be saved</p>
+                    <img id="review-signature" class="signature-image" alt="What will be saved with the transfer">
+                    <div id="review-file" class="modal-summary" hidden></div>
+                    <p class="modal-text field-note" id="review-note"></p>
+                    <footer>
+                        <button type="button" class="secondary outline" onclick="backToCompleteEntry()">Go back</button>
+                        <button type="submit">Confirm and save</button>
+                    </footer>
                 </div>
             </form>
-        </div>
-    </div>
+        </article>
+    </dialog>
 
-    <!-- Cancel Confirmation Modal (In Progress, or Completed until invoiced) -->
-    <div id="cancelModal"
-        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel modal-panel" style="margin: 15vh auto; max-width: 500px; position: relative; border-color: rgba(239, 68, 68, 0.4);">
-            <button onclick="document.getElementById('cancelModal').style.display='none'" class="btn btn-outline-muted"
-                style="position: absolute; right: 1rem; top: 1rem;">✕
-                Close</button>
-            <h3>✕ Cancel Transfer</h3>
-            <div id="cancel-summary" class="modal-summary" style="margin-bottom: 1rem;">
-            </div>
-            <div id="cancel-completed-warning" class="modal-warning" style="display: none;">
-                ⚠ This transfer has already been <strong>completed and signed</strong>. Only cancel it if it was a
-                duplicate or a mistake — the record and signature are kept permanently, marked as Cancelled.
-            </div>
-            <p style="font-size: 0.9rem;">The stock deducted when this transfer was initiated will be
-                <strong>returned to inventory</strong>. The record is kept and marked as Cancelled — it will not
-                appear in reports. This cannot be reversed from this page.</p>
+    <!-- Cancel a transfer (in progress, or completed until it's invoiced) -->
+    <dialog id="cancelDialog" class="bud-modal">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3>Cancel transfer</h3>
+            </header>
+            <div id="cancel-summary" class="modal-summary"></div>
+            <p id="cancel-completed-warning" class="modal-warning" hidden>
+                This transfer has already been <strong>completed and signed for</strong>. Only cancel it if it was a
+                duplicate or a mistake. The record and signature are kept, marked as cancelled.
+            </p>
+            <p class="modal-text">The stock this transfer took off goes back into stock. The record stays, marked as
+                cancelled, and it's left out of reports. This can't be reversed here.</p>
             <form method="POST">
                 <input type="hidden" name="action" value="cancel_coc">
                 <input type="hidden" name="coc_id" id="cancel_coc_id">
-                <label for="cancel_reason" style="margin-top: 0.5rem;">Reason<span id="cancel-reason-required"
-                        style="display: none;"> (required for completed transfers)</span></label>
-                <textarea name="cancel_reason" id="cancel_reason" rows="2"
-                    placeholder="e.g. Duplicate transfer opened by mistake"></textarea>
-                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
-                    <button type="button" class="btn btn-outline-muted"
-                        onclick="document.getElementById('cancelModal').style.display='none'">Keep Transfer</button>
-                    <button type="submit" class="btn" style="background: #ef4444;">Yes — Cancel &amp; Restore
-                        Stock</button>
-                </div>
+                <label for="cancel_reason">Reason<span id="cancel-reason-required" hidden> (needed for a completed transfer)</span></label>
+                <textarea name="cancel_reason" id="cancel_reason" rows="2" placeholder="For example, a duplicate opened by mistake"></textarea>
+                <footer>
+                    <button type="button" class="secondary outline" data-close-dialog>Keep transfer</button>
+                    <button type="submit" class="danger">Cancel and put stock back</button>
+                </footer>
             </form>
-        </div>
-    </div>
+        </article>
+    </dialog>
 
-    <!-- Invoice Confirmation Modal (Completed, not yet invoiced) -->
-    <div id="invoiceModal"
-        style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 100; backdrop-filter: blur(5px); overflow-y: auto;">
-        <div class="glass-panel modal-panel" style="margin: 15vh auto; max-width: 480px; position: relative;">
-            <button onclick="document.getElementById('invoiceModal').style.display='none'" class="btn btn-outline-muted"
-                style="position: absolute; right: 1rem; top: 1rem;">✕
-                Close</button>
-            <h3>🧾 Mark as Invoiced</h3>
-            <div id="invoice-summary" class="modal-summary" style="margin-bottom: 1rem;">
-            </div>
-            <p style="font-size: 0.9rem;">Confirm this shipment has been invoiced. The "Invoiced" button will no longer
-                be shown for this transfer.</p>
+    <!-- Mark a completed transfer as invoiced -->
+    <dialog id="invoiceDialog" class="bud-modal">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3>Mark as invoiced</h3>
+            </header>
+            <div id="invoice-summary" class="modal-summary"></div>
+            <p class="modal-text">Confirm this shipment has been invoiced. It will stop showing as needing an invoice.</p>
             <form method="POST">
                 <input type="hidden" name="action" value="mark_invoiced">
                 <input type="hidden" name="coc_id" id="invoice_coc_id">
-                <div style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem;">
-                    <button type="button" class="btn btn-outline-muted"
-                        onclick="document.getElementById('invoiceModal').style.display='none'">Cancel</button>
-                    <button type="submit" class="btn" style="background: #3b82f6;">Yes — Mark as Invoiced</button>
-                </div>
+                <footer>
+                    <button type="button" class="secondary outline" data-close-dialog>Cancel</button>
+                    <button type="submit">Mark as invoiced</button>
+                </footer>
             </form>
-        </div>
-    </div>
+        </article>
+    </dialog>
 
+    <!-- A transfer's record -->
+    <dialog id="viewDialog" class="bud-modal bud-modal--wide">
+        <article>
+            <header>
+                <button type="button" rel="prev" aria-label="Close" data-close-dialog></button>
+                <h3 id="view-title">Chain of custody record</h3>
+            </header>
+            <div id="coc-content"></div>
+            <footer>
+                <button type="button" class="secondary outline" data-close-dialog>Close</button>
+                <button type="button" id="view-print">Print record</button>
+            </footer>
+        </article>
+    </dialog>
+
+    <script src="js/print-transfer.js?v=<?= h(BUD_VERSION) ?>"></script>
+    <script type="application/json" id="transferData"><?= json_encode($transfers_by_id, $json_flags) ?></script>
+    <script type="application/json" id="itemNames"><?= json_encode($item_name_map, $json_flags) ?></script>
+    <script type="application/json" id="receiverData"><?= json_encode($receiver_map, $json_flags) ?></script>
+    <script type="application/json" id="companyData"><?= json_encode($company, $json_flags) ?></script>
     <script>
-        // ── Item name lookup map (PHP-injected) ──────────────────────────────
-        const itemNameMap = <?= json_encode($item_name_map) ?>;
-        const receiverMap = <?= json_encode($receiver_map) ?>;
+        const transfers = JSON.parse(document.getElementById('transferData').textContent);
+        const itemNameMap = JSON.parse(document.getElementById('itemNames').textContent);
+        const receiverMap = JSON.parse(document.getElementById('receiverData').textContent);
+        const company = JSON.parse(document.getElementById('companyData').textContent);
 
-        function resolveItemName(item_id) {
-            return itemNameMap[item_id] || item_id;
+        function resolveItemName(itemId) {
+            return itemNameMap[itemId] || ('Item #' + itemId);
         }
 
-        // ── Receiver address hint on form ────────────────────────────────────
+        function transferItems(data) {
+            try {
+                return JSON.parse(data.coc_items) || [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        // What a pop-up is about: number, date, where to and the items
+        // "Our staff", or "Courier, Fast Freight, tracking AB123"
+        function deliveryText(data) {
+            if (data.delivery_method !== 'courier') return 'Our staff';
+            return 'Courier, ' + (data.courier_company || 'company not given') + (data.tracking_number ? ', tracking ' + data.tracking_number : '');
+        }
+
+        function summaryHtml(data, withCarrier) {
+            const items = transferItems(data);
+            return '<dl>' +
+                '<dt>Transfer</dt><dd>#' + escapeHtml(data.id) + ', ' + escapeHtml(formatDate(data.form_date)) + '</dd>' +
+                '<dt>To</dt><dd>' + escapeHtml(data.destination) + '</dd>' +
+                (withCarrier ? '<dt>Sent by</dt><dd>' + escapeHtml(data.transported_by) + '</dd>' +
+                    '<dt>Delivery</dt><dd>' + escapeHtml(deliveryText(data)) + '</dd>' : '') +
+                '</dl>' +
+                (items.length ? '<ul>' + items.map(i => '<li>' + escapeHtml(resolveItemName(i.item_id)) + ' × ' + escapeHtml(i.qty) + '</li>').join('') + '</ul>' : '');
+        }
+
+        document.addEventListener('click', (e) => {
+            const button = e.target.closest('[data-transfer-action]');
+            if (!button) return;
+            const data = transfers[button.dataset.id];
+            if (!data) return;
+            const action = button.dataset.transferAction;
+            if (action === 'complete') openComplete(data);
+            else if (action === 'manifest') printTransfer(data, 'manifest', resolveItemName, receiverMap, company);
+            else if (action === 'cancel') openCancel(data);
+            else if (action === 'invoice') openInvoice(data);
+            else if (action === 'view') viewTransfer(data);
+        });
+
+        // ── New transfer ─────────────────────────────────────────────────────
+        function addItemRow() {
+            const row = document.getElementById('itemRowTemplate').content.firstElementChild.cloneNode(true);
+            document.getElementById('items-container').appendChild(row);
+        }
+
+        function removeItemRow(button) {
+            const container = document.getElementById('items-container');
+            button.closest('.repeat-row').remove();
+            if (!container.children.length) addItemRow();
+        }
+
+        function openNewTransfer() {
+            const form = document.getElementById('transferForm');
+            if (form) {
+                form.reset();
+                document.getElementById('items-container').innerHTML = '';
+                addItemRow();
+                updateReceiverHint('');
+                showCourierFields();
+            }
+            openDialog('newTransferDialog');
+        }
+
+        // A courier delivery needs the courier's name (and a tracking number if known)
+        function showCourierFields() {
+            const courier = !!document.querySelector('input[name="delivery_method"][value="courier"]:checked');
+            const fields = document.getElementById('courier-fields');
+            if (!fields) return;
+            fields.hidden = !courier;
+            document.getElementById('courier_company').required = courier;
+        }
+        document.querySelectorAll('input[name="delivery_method"]').forEach(r => r.addEventListener('change', showCourierFields));
+
         function updateReceiverHint(id) {
             const hint = document.getElementById('receiver-address-hint');
             if (!hint) return;
             const r = receiverMap[id];
-            hint.textContent = r && r.address ? '📍 ' + r.address : '';
+            hint.textContent = r && r.address ? 'Goes to ' + r.address : '';
         }
 
-        // ── Item row repeater ────────────────────────────────────────────────
-        function addItemRow() {
-            const container = document.getElementById('items-container');
-            const row = container.children[0].cloneNode(true);
-            row.querySelectorAll('input').forEach(i => i.value = '');
-            container.appendChild(row);
+        const receiverSelect = document.getElementById('receiver_select');
+        if (receiverSelect) {
+            receiverSelect.addEventListener('change', () => updateReceiverHint(receiverSelect.value));
         }
 
-        // ── Signature Pad (complete modal) ───────────────────────────────────
-        const completeCanvas = document.getElementById('sig-pad-complete');
-        const completeCtx = completeCanvas.getContext('2d');
-        let completePainting = false;
-        let completeHasDrawn = false; // an untouched canvas still exports a PNG, so track real strokes
+        // ── Complete ─────────────────────────────────────────────────────────
+        // Two ways to sign for it: on screen, or (a courier delivery) the
+        // manifest the receiver signed, photographed or scanned and uploaded
+        const completeName = document.getElementById('complete_received_by');
+        const completePad = createSignaturePad(document.getElementById('sig-pad-complete'), updateCompleteSubmit);
+        const documentInput = document.getElementById('signed_document');
+        const maxDocumentBytes = 20 * 1024 * 1024;
+        let reviewUrl = null;
 
-        function startComplete(e) { completePainting = true; drawComplete(e); }
-        function endComplete() { completePainting = false; completeCtx.beginPath(); }
-        function drawComplete(e) {
-            if (!completePainting) return;
-            e.preventDefault();
-            completeHasDrawn = true;
+        function signMethod() {
+            const checked = document.querySelector('input[name="sign_method"]:checked');
+            return checked ? checked.value : 'screen';
+        }
+
+        function setSignMethod(method) {
+            document.querySelectorAll('input[name="sign_method"]').forEach(r => { r.checked = r.value === method; });
+            showSignMethod();
+        }
+
+        function showSignMethod() {
+            const onScreen = signMethod() === 'screen';
+            document.getElementById('sign-screen').hidden = !onScreen;
+            document.getElementById('sign-document').hidden = onScreen;
+            document.getElementById('complete-submit-hint').textContent = onScreen
+                ? 'Enter the receiver\'s name and have them sign to carry on.'
+                : 'Enter the name on the signed manifest and choose its photo or scan to carry on.';
             updateCompleteSubmit();
-            const rect = completeCanvas.getBoundingClientRect();
-            const scaleX = completeCanvas.width / rect.width;
-            const scaleY = completeCanvas.height / rect.height;
-            const x = ((e.clientX || e.touches[0].clientX) - rect.left) * scaleX;
-            const y = ((e.clientY || e.touches[0].clientY) - rect.top) * scaleY;
-            completeCtx.lineWidth = 2;
-            completeCtx.lineCap = 'round';
-            completeCtx.strokeStyle = '#000';
-            completeCtx.lineTo(x, y);
-            completeCtx.stroke();
-            completeCtx.beginPath();
-            completeCtx.moveTo(x, y);
         }
-        completeCanvas.addEventListener('mousedown', startComplete);
-        completeCanvas.addEventListener('mouseup', endComplete);
-        completeCanvas.addEventListener('mousemove', drawComplete);
-        completeCanvas.addEventListener('touchstart', startComplete);
-        completeCanvas.addEventListener('touchend', endComplete);
-        completeCanvas.addEventListener('touchmove', drawComplete);
+        document.querySelectorAll('input[name="sign_method"]').forEach(r => r.addEventListener('change', showSignMethod));
+
+        // Hard block: no completion without a receiver's name and either a
+        // drawn signature or the signed manifest
+        function updateCompleteSubmit() {
+            const ready = signMethod() === 'screen' ? completePad.hasDrawn() : documentInput.files.length > 0;
+            document.getElementById('complete-submit').disabled = !(completeName.value.trim() && ready);
+        }
+        completeName.addEventListener('input', updateCompleteSubmit);
+
+        // Check the file, and make a big phone photo smaller before it uploads
+        documentInput.addEventListener('change', async () => {
+            const file = documentInput.files[0];
+            if (file) {
+                const okType = /^(image\/(jpeg|png|webp)|application\/pdf)$/.test(file.type) || /\.pdf$/i.test(file.name);
+                if (!okType) {
+                    showToast('The signed manifest has to be a photo (JPG, PNG or WebP) or a PDF.', 'error');
+                    documentInput.value = '';
+                } else {
+                    const smaller = await shrinkPhoto(file);
+                    if (smaller !== file && typeof DataTransfer !== 'undefined') {
+                        const list = new DataTransfer();
+                        list.items.add(smaller);
+                        documentInput.files = list.files;
+                    }
+                    if (documentInput.files[0] && documentInput.files[0].size > maxDocumentBytes) {
+                        showToast('That file is too big. Keep it under 20 MB.', 'error');
+                        documentInput.value = '';
+                    }
+                }
+            }
+            updateCompleteSubmit();
+        });
 
         function clearCompleteSignature() {
-            completeCtx.clearRect(0, 0, completeCanvas.width, completeCanvas.height);
-            completeHasDrawn = false;
-            updateCompleteSubmit();
+            completePad.clear();
         }
-        // Step 1 -> 2: capture the signature and show the review screen so the
-        // name and autograph are checked before anything is committed
-        function reviewCompletion() {
-            if (!completeHasDrawn) {
-                alert('Please have the receiver sign before saving.');
-                return;
-            }
-            const name = document.getElementById('complete_received_by').value.trim();
-            if (!name) {
-                return;
-            }
-            const data = completeCanvas.toDataURL();
-            document.getElementById('complete_signature_data').value = data;
-            document.getElementById('review-name').textContent = name;
-            document.getElementById('review-signature').src = data;
-            document.getElementById('complete-entry').style.display = 'none';
-            document.getElementById('complete-review').style.display = 'block';
-        }
-        function backToCompleteEntry() {
-            document.getElementById('complete-review').style.display = 'none';
-            document.getElementById('complete-entry').style.display = 'block';
-        }
-        // Hard block: no completion without a receiver name AND a drawn signature
-        function updateCompleteSubmit() {
-            const name = document.getElementById('complete_received_by').value.trim();
-            document.getElementById('complete-submit').disabled = !(name && completeHasDrawn);
-        }
-        document.getElementById('complete_received_by').addEventListener('input', updateCompleteSubmit);
 
-        // ── Complete Modal ───────────────────────────────────────────────────
+        // Step 1 to 2: show exactly what will be saved before it's committed
+        function reviewCompletion() {
+            const name = completeName.value.trim();
+            const onScreen = signMethod() === 'screen';
+            const picture = document.getElementById('review-signature');
+            const fileBox = document.getElementById('review-file');
+            if (!name) return;
+            if (reviewUrl) {
+                URL.revokeObjectURL(reviewUrl);
+                reviewUrl = null;
+            }
+            if (onScreen) {
+                if (!completePad.hasDrawn()) return;
+                const image = completePad.toDataURL();
+                document.getElementById('complete_signature_data').value = image;
+                picture.src = image;
+                picture.classList.remove('document-preview');
+                picture.hidden = false;
+                fileBox.hidden = true;
+                document.getElementById('review-what').textContent = 'Signature to be saved';
+                document.getElementById('review-note').textContent = 'Check the name is spelled right and the signature is right. A completed record can only be fixed by cancelling the whole transfer.';
+            } else {
+                const file = documentInput.files[0];
+                if (!file) return;
+                document.getElementById('complete_signature_data').value = '';
+                document.getElementById('review-what').textContent = 'Signed manifest to be kept with the transfer';
+                if (file.type.startsWith('image/')) {
+                    reviewUrl = URL.createObjectURL(file);
+                    picture.src = reviewUrl;
+                    picture.classList.add('document-preview');
+                    picture.hidden = false;
+                    fileBox.hidden = true;
+                } else {
+                    picture.hidden = true;
+                    picture.removeAttribute('src');
+                    fileBox.innerHTML = '<strong>' + escapeHtml(file.name) + '</strong><br>PDF, ' + escapeHtml(formatFileSize(file.size));
+                    fileBox.hidden = false;
+                }
+                document.getElementById('review-note').textContent = 'Check it\'s the right transfer\'s manifest, signed, and the name matches the one printed on it. A completed record can only be fixed by cancelling the whole transfer.';
+            }
+            document.getElementById('review-name').textContent = name;
+            document.getElementById('complete-entry').hidden = true;
+            document.getElementById('complete-review').hidden = false;
+        }
+
+        function backToCompleteEntry() {
+            document.getElementById('complete-review').hidden = true;
+            document.getElementById('complete-entry').hidden = false;
+        }
+
         function openComplete(data) {
             document.getElementById('complete_coc_id').value = data.id;
-            const items = JSON.parse(data.coc_items);
-            let itemList = items.map(i => `${resolveItemName(i.item_id)} × ${i.qty}`).join('<br>');
-            document.getElementById('complete-summary').innerHTML =
-                `<strong>Doc #${data.id}</strong> &nbsp;|&nbsp; ${data.form_date}<br>
-                 <strong>To:</strong> ${data.destination} &nbsp;|&nbsp; <strong>By:</strong> ${data.transported_by}<br>
-                 <div style="margin-top:0.5rem;">${itemList}</div>`;
-
-            // Pre-fill received_by from receiver map if available
+            document.getElementById('complete-summary').innerHTML = summaryHtml(data, true);
+            // The receiver's usual contact person, as a starting point
             const r = receiverMap[data.receiver_id];
-            document.getElementById('complete_received_by').value = r ? (r.contact || '') : '';
-            clearCompleteSignature();
+            completeName.value = r ? (r.contact || '') : '';
+            completePad.clear();
+            documentInput.value = '';
+            document.getElementById('complete_tracking').value = data.tracking_number || '';
+            // A courier delivery comes back as a signed manifest
+            setSignMethod(data.delivery_method === 'courier' ? 'document' : 'screen');
             backToCompleteEntry();
-            document.getElementById('completeModal').style.display = 'block';
+            openDialog('completeDialog');
         }
 
-        // ── Cancel Modal ─────────────────────────────────────────────────────
+        // ── Cancel ───────────────────────────────────────────────────────────
         function openCancel(data) {
             document.getElementById('cancel_coc_id').value = data.id;
-            const items = JSON.parse(data.coc_items);
-            let itemList = items.map(i => `${resolveItemName(i.item_id)} × ${i.qty}`).join('<br>');
-            document.getElementById('cancel-summary').innerHTML =
-                `<strong>Doc #${data.id}</strong> &nbsp;|&nbsp; ${data.form_date}<br>
-                 <strong>To:</strong> ${data.destination}<br>
-                 <div style="margin-top:0.5rem;">${itemList}</div>`;
-
-            // Completed transfers need a stronger warning and a mandatory reason
+            document.getElementById('cancel-summary').innerHTML = summaryHtml(data, false);
+            // A completed transfer gets a stronger warning and needs a reason
             const isCompleted = data.status === 'Completed';
-            document.getElementById('cancel-completed-warning').style.display = isCompleted ? 'block' : 'none';
-            document.getElementById('cancel-reason-required').style.display = isCompleted ? 'inline' : 'none';
+            document.getElementById('cancel-completed-warning').hidden = !isCompleted;
+            document.getElementById('cancel-reason-required').hidden = !isCompleted;
             const reason = document.getElementById('cancel_reason');
             reason.value = '';
             reason.required = isCompleted;
-
-            document.getElementById('cancelModal').style.display = 'block';
+            openDialog('cancelDialog');
         }
 
-        // ── Invoice Modal ────────────────────────────────────────────────────
+        // ── Invoice ──────────────────────────────────────────────────────────
         function openInvoice(data) {
             document.getElementById('invoice_coc_id').value = data.id;
-            document.getElementById('invoice-summary').innerHTML =
-                `<strong>Doc #${data.id}</strong> &nbsp;|&nbsp; ${data.form_date}<br>
-                 <strong>To:</strong> ${data.destination}`;
-            document.getElementById('invoiceModal').style.display = 'block';
+            document.getElementById('invoice-summary').innerHTML = summaryHtml(data, false);
+            openDialog('invoiceDialog');
         }
 
-        // ── View Modal ───────────────────────────────────────────────────────
-        function viewCoc(data) {
-            const items = JSON.parse(data.coc_items);
-            let itemHtml = '<table style="width:100%; border-collapse:collapse; margin-top:1rem;">' +
-                '<thead><tr style="border-bottom:2px solid #000;">' +
-                '<th style="text-align:left; padding:0.5rem; color:#1a6fba;">Item</th>' +
-                '<th style="text-align:left; padding:0.5rem; color:#1a6fba;">Batch</th>' +
-                '<th style="text-align:left; padding:0.5rem; color:#1a6fba;">Qty</th>' +
-                '</tr></thead><tbody>';
-            items.forEach(i => {
-                itemHtml += `<tr>
-                    <td style="border-bottom:1px solid #ccc; padding:0.5rem;">${resolveItemName(i.item_id)}</td>
-                    <td style="border-bottom:1px solid #ccc; padding:0.5rem;">${i.batch || '-'}</td>
-                    <td style="border-bottom:1px solid #ccc; padding:0.5rem;">${i.qty}</td>
-                </tr>`;
-            });
-            itemHtml += '</tbody></table>';
-
-            const receivedSection = data.received_by
-                ? `<div style="margin-top:1rem;"><strong>Received By:</strong> ${data.received_by}</div>`
-                : '';
-
-            const invoiceSection = data.invoiced_at
-                ? `<div style="margin-top:0.5rem;"><strong>Invoiced:</strong> ${data.invoiced_at}</div>`
-                : '';
-
-            const cancelledSection = data.status === 'Cancelled'
-                ? `<div style="margin-top:1rem; padding: 0.75rem; border: 1px solid #ef4444; border-radius: 0.5rem; color: #ef4444;">
-                       <strong>✕ CANCELLED</strong> ${data.cancelled_at ? '&mdash; ' + data.cancelled_at : ''}<br>
-                       ${data.cancel_reason ? '<small><strong>Reason:</strong> ' + data.cancel_reason + '</small><br>' : ''}
-                       <small>Deducted stock was restored to inventory when this transfer was cancelled.</small>
-                   </div>`
-                : '';
-
-            const sigSection = data.signature_image
-                ? `<div style="margin-top:2rem;"><p><strong>Receiver Signature:</strong></p>
-                   <img src="${data.signature_image}" style="border:1px solid #ccc; max-width:100%; height:auto;"></div>`
-                : '';
-
-            const html = `
-                <div style="text-align:center; margin-bottom:2rem;">
-                    <h2>Chain of Custody Record</h2>
-                    <p>Doc ID: #${data.id}</p>
-                </div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:1rem;">
-                    <div><strong>Date:</strong> ${data.form_date}</div>
-                    <div><strong>Transported By:</strong> ${data.transported_by}</div>
-                </div>
-                <div style="display:flex; justify-content:space-between; margin-bottom:2rem;">
-                    <div><strong>From:</strong> ${data.origin}</div>
-                    <div><strong>To:</strong> ${data.destination}</div>
-                </div>
-                ${itemHtml}
-                ${cancelledSection}
-                ${receivedSection}
-                ${invoiceSection}
-                ${sigSection}
-            `;
-            document.getElementById('coc-content').innerHTML = html;
-            document.getElementById('viewModal').style.display = 'block';
-        }
-
-        // ── Packing Slip ─────────────────────────────────────────────────────
-        function printPackingSlip(data) {
-            const items = JSON.parse(data.coc_items);
+        // ── View ─────────────────────────────────────────────────────────────
+        function viewTransfer(data) {
+            const items = transferItems(data);
             const receiver = receiverMap[data.receiver_id] || {};
-            const address = receiver.address || data.destination;
+            let html = '<div class="modal-summary"><dl>' +
+                '<dt>Transfer</dt><dd>#' + escapeHtml(data.id) + '</dd>' +
+                '<dt>Date</dt><dd>' + escapeHtml(formatDate(data.form_date)) + '</dd>' +
+                '<dt>From</dt><dd>' + escapeHtml(data.origin) + '</dd>' +
+                '<dt>To</dt><dd>' + escapeHtml(data.destination) + (receiver.address ? '<br>' + escapeHtml(receiver.address) : '') + '</dd>' +
+                '<dt>Sent by</dt><dd>' + escapeHtml(data.transported_by) + '</dd>' +
+                '<dt>Delivery</dt><dd>' + escapeHtml(deliveryText(data)) + '</dd>' +
+                (data.received_by ? '<dt>Received by</dt><dd>' + escapeHtml(data.received_by) + '</dd>' : '') +
+                (data.completed_at ? '<dt>Completed</dt><dd>' + escapeHtml(formatDateTime(data.completed_at)) + '</dd>' : '') +
+                (data.invoiced_at ? '<dt>Invoiced</dt><dd>' + escapeHtml(formatDateTime(data.invoiced_at)) + '</dd>' : '') +
+                '</dl></div>';
 
-            let rows = items.map(i => `
-                <tr>
-                    <td>${resolveItemName(i.item_id)}</td>
-                    <td>${i.batch || '-'}</td>
-                    <td>${i.qty}</td>
-                </tr>`).join('');
+            if (data.status === 'Cancelled') {
+                html += '<div class="callout callout--danger"><p><strong>Cancelled' +
+                    (data.cancelled_at ? ' on ' + escapeHtml(formatDateTime(data.cancelled_at)) : '') + '.</strong> ' +
+                    (data.cancel_reason ? escapeHtml(data.cancel_reason) + ' ' : '') +
+                    'The stock it took off was put back when it was cancelled.</p></div>';
+            }
 
-            const slip = `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Packing Slip — COC #${data.id}</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; font-size: 12pt; color: #111; padding: 2cm; }
-        h1 { font-size: 18pt; margin-bottom: 0.25rem; }
-        .subtitle { font-size: 10pt; color: #555; margin-bottom: 1.5rem; }
-        .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem; border: 1px solid #ccc; padding: 1rem; border-radius: 4px; }
-        .meta-grid div strong { display: block; font-size: 9pt; text-transform: uppercase; color: #666; margin-bottom: 2px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        th { border-bottom: 2px solid #333; padding: 0.4rem 0.5rem; text-align: left; font-size: 10pt; }
-        td { border-bottom: 1px solid #ddd; padding: 0.4rem 0.5rem; font-size: 11pt; }
-        .footer { margin-top: 3rem; font-size: 9pt; color: #888; border-top: 1px solid #ccc; padding-top: 0.5rem; }
-        @media print { body { padding: 1cm; } }
-    </style>
-</head>
-<body>
-    <h1>Packing Slip</h1>
-    <div class="subtitle">Chain of Custody — Doc #${data.id}</div>
+            html += '<div class="table-wrap"><table class="wide-table"><thead><tr><th>Item</th><th>Batch</th><th class="num">Quantity</th></tr></thead><tbody>' +
+                items.map(i => '<tr><td>' + escapeHtml(resolveItemName(i.item_id)) + '</td><td>' + escapeHtml(i.batch || '-') + '</td><td class="num">' + escapeHtml(i.qty) + '</td></tr>').join('') +
+                '</tbody></table></div>';
 
-    <div class="meta-grid">
-        <div><strong>Date</strong>${data.form_date}</div>
-        <div><strong>Doc ID</strong>#${data.id}</div>
-        <div><strong>From</strong>${data.origin}</div>
-        <div><strong>Transported By</strong>${data.transported_by}</div>
-        <div style="grid-column:1/-1;"><strong>Destination</strong>${data.destination}</div>
-        <div style="grid-column:1/-1;"><strong>Address</strong>${address}</div>
-    </div>
+            if (data.signature_image) {
+                html += '<p class="modal-text">Receiver\'s signature</p><img class="signature-image" src="' + escapeHtml(data.signature_image) + '" alt="Receiver\'s signature">';
+            }
+            if (data.signed_document) {
+                const url = 'coc_document.php?id=' + encodeURIComponent(data.id);
+                const isPdf = /\.pdf$/i.test(data.signed_document);
+                html += '<p class="modal-text">Signed manifest</p>' +
+                    (isPdf ? '' : '<a href="' + url + '" target="_blank" rel="noopener"><img class="signature-image document-preview" src="' + url + '" alt="The signed manifest"></a>') +
+                    '<p><a href="' + url + '" target="_blank" rel="noopener" role="button" class="secondary outline btn-small">Open the signed manifest</a> ' +
+                    '<small>' + escapeHtml(data.signed_document_name || '') + '</small></p>';
+            }
 
-    <table>
-        <thead>
-            <tr>
-                <th>Product</th>
-                <th>Batch / Lot</th>
-                <th>Qty</th>
-            </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-    </table>
-
-    <div class="footer">Generated by BUD Portal &mdash; ${new Date().toLocaleString()}<br>Status: In Progress &mdash; Awaiting receiver signature.</div>
-    <script>window.onload = function() { window.print(); }<\/script>
-</body>
-</html>`;
-
-            const win = window.open('', '_blank');
-            win.document.write(slip);
-            win.document.close();
+            document.getElementById('view-title').textContent = 'Chain of custody record #' + data.id;
+            document.getElementById('coc-content').innerHTML = html;
+            document.getElementById('view-print').onclick = () => printTransfer(data, 'record', resolveItemName, receiverMap, company);
+            openDialog('viewDialog');
         }
     </script>
-</body>
-
-</html>
+<?php require 'includes/footer.php'; ?>

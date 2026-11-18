@@ -42,7 +42,7 @@ for i in $(seq 1 20); do
     sleep 0.5
 done
 
-PAGES="index.php suppliers.php stock.php custody.php bundles.php receivers.php destruction.php s29.php reports.php analytics.php admin.php"
+PAGES="index.php tracking.php reporting.php administration.php company.php suppliers.php stock.php custody.php bundles.php receivers.php destruction.php s29.php reports.php analytics.php admin.php"
 fail=0
 for page in $PAGES; do
     if ! body=$(curl -fsS "http://127.0.0.1:$PORT/$page"); then
@@ -57,6 +57,35 @@ for page in $PAGES; do
         echo "  ok: $page"
     fi
 done
+
+# The same pages again with the demo data in (tests/seed_demo_data.php), so
+# every table, badge and button renders, and the seed keeps up with the schema
+if php tests/seed_demo_data.php --force >/dev/null; then
+    for page in $PAGES "s29.php?month="; do
+        if ! body=$(curl -fsS "http://127.0.0.1:$PORT/$page"); then
+            echo "FAIL: $page returned an HTTP error with demo data" >&2
+            fail=1
+        elif grep -qiE 'Fatal error|Parse error|Database connection failed' <<< "$body"; then
+            echo "FAIL: $page rendered a PHP error with demo data" >&2
+            fail=1
+        fi
+    done
+    echo "  ok: every page renders with the demo data in"
+else
+    echo "FAIL: tests/seed_demo_data.php didn't run" >&2
+    fail=1
+fi
+
+# PHP warnings and notices go to the server's log, not the page, so a page
+# can look fine while a variable is missing. Treat any as a failure, except
+# the PHP install's own startup messages ("in Unknown on line 0", like the
+# JIT notice on GitHub's runners), which aren't from BUD's code.
+if grep -E "PHP (Warning|Notice|Deprecated|Fatal)" "$TMP/server.log" | grep -v "in Unknown on line 0"; then
+    echo "FAIL: PHP reported problems while serving the pages (above)" >&2
+    fail=1
+else
+    echo "  ok: no PHP warnings or notices"
+fi
 
 # Storage rule 1: everything went to the test DB, nothing to the fallback.
 if [ -f "$PUBLIC/database/bud_inventory.db" ]; then

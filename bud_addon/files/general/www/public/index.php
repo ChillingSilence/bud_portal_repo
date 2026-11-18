@@ -1,11 +1,13 @@
 <?php
 require_once 'config.php';
+require_once 'includes/stock.php';
 
 // First Run Check
 try {
     // Try to select 1 record from suppliers to see if table exists
     // SQLite throws exception if table doesn't exist
     $result = $pdo->query("SELECT 1 FROM suppliers LIMIT 1");
+    $result = null;
 } catch (PDOException $e) {
     // Table likely doesn't exist, try to import schema
     if (file_exists('database/schema.sql')) {
@@ -13,8 +15,6 @@ try {
         try {
             // exec() allows multiple statements
             $pdo->exec($sql);
-
-            // Log success (optional)
         } catch (PDOException $ex) {
             die("First Run Setup Failed (Schema Import): " . $ex->getMessage());
         }
@@ -22,73 +22,102 @@ try {
         die("Database not initialized and schema.sql not found.");
     }
 }
+
+// Everything on the Dashboard is a read-only summary
+$stats = [
+    'in_progress' => 0,
+    'to_invoice' => 0,
+    'low_stock' => 0,
+    'completed_this_month' => 0,
+];
+$low_items = [];
+try {
+    $stats['in_progress'] = (int) $pdo->query("SELECT COUNT(*) FROM chain_of_custody WHERE status = 'In Progress'")->fetchColumn();
+    $stats['to_invoice'] = (int) $pdo->query("SELECT COUNT(*) FROM chain_of_custody WHERE status = 'Completed' AND invoiced_at IS NULL")->fetchColumn();
+
+    // Completed transfers dated this month, as the monthly report counts them
+    $stmt = $pdo->prepare("SELECT COUNT(*) FROM chain_of_custody WHERE status = 'Completed' AND form_date BETWEEN ? AND ?");
+    $stmt->execute([date('Y-m-01'), date('Y-m-t')]);
+    $stats['completed_this_month'] = (int) $stmt->fetchColumn();
+    $stmt = null;
+
+    foreach ($pdo->query("SELECT * FROM stock_items ORDER BY name ASC")->fetchAll() as $item) {
+        if (bud_is_low_stock($item)) {
+            $low_items[] = $item;
+        }
+    }
+    $stats['low_stock'] = count($low_items);
+} catch (PDOException $e) {
+    error_log('BUD dashboard: ' . $e->getMessage());
+}
+
+$pageTitle = 'Dashboard';
+require 'includes/header.php';
 ?>
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= APP_NAME ?> - Dashboard</title>
-    <link rel="stylesheet" href="assets/css/style.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
-</head>
-
-<body>
-    <?php include 'includes/nav.php'; ?>
-
-    <div class="container">
-        <header style="margin-bottom: 2rem;">
+    <main class="container">
+        <hgroup class="page-header">
             <h1>Dashboard</h1>
-            <p>Welcome to <strong><?= APP_NAME ?></strong>. What would you like to do?</p>
-        </header>
+            <p>Your stock and transfers at a glance.</p>
+        </hgroup>
 
-        <div class="grid">
-            <div class="glass-panel">
-                <h3>📦 Stock Management</h3>
-                <p>View current inventory levels, receive new stock, or update items.</p>
-                <a href="stock.php" class="btn">Manage Stock</a>
-            </div>
-
-            <div class="glass-panel">
-                <h3>🚚 Chain of Custody</h3>
-                <p>Generate transfer forms and capture signatures for transport.</p>
-                <a href="custody.php" class="btn">New Transfer</a>
-            </div>
-
-            <div class="glass-panel">
-                <h3>🔥 Destruction</h3>
-                <p>Record destroyed stock and view the destruction register.</p>
-                <a href="destruction.php" class="btn">Destruction Register</a>
-            </div>
-
-            <div class="glass-panel">
-                <h3>👥 Suppliers</h3>
-                <p>Manage supplier contact details.</p>
-                <a href="suppliers.php" class="btn">Suppliers</a>
-            </div>
-
-            <div class="glass-panel">
-                <h3>📊 Reports</h3>
-                <p>Generate monthly materials out reports.</p>
-                <a href="reports.php" class="btn">View Reports</a>
-            </div>
-
-            <div class="glass-panel">
-                <h3>📄 Section 29</h3>
-                <p>Upload monthly pharmacy S29 files and browse the supply register.</p>
-                <a href="s29.php" class="btn">S29 Register</a>
-            </div>
-
-            <div class="glass-panel">
-                <h3>📈 Analytics</h3>
-                <p>Materials-out by month, with product and buyer breakdowns.</p>
-                <a href="analytics.php" class="btn">View Analytics</a>
-            </div>
+        <div class="stat-grid">
+            <a class="stat-card" href="custody.php">
+                <span class="stat-value"><?= $stats['in_progress'] ?></span>
+                <span class="stat-label">Transfers in progress</span>
+            </a>
+            <a class="stat-card" href="custody.php">
+                <span class="stat-value"><?= $stats['to_invoice'] ?></span>
+                <span class="stat-label">Transfers to invoice</span>
+            </a>
+            <a class="stat-card" href="stock.php">
+                <span class="stat-value"><?= $stats['low_stock'] ?></span>
+                <span class="stat-label">Low-stock items</span>
+            </a>
+            <a class="stat-card" href="reports.php">
+                <span class="stat-value"><?= $stats['completed_this_month'] ?></span>
+                <span class="stat-label">Completed this month</span>
+            </a>
         </div>
-    </div>
-</body>
 
-</html>
+        <section>
+            <div class="panel-head">
+                <div>
+                    <h2>Low stock</h2>
+                    <p>Items at or under their reorder level.</p>
+                </div>
+                <div class="panel-head-actions">
+                    <a href="stock.php" role="button" class="secondary outline">Open stock</a>
+                </div>
+            </div>
+            <?php if (empty($low_items)): ?>
+                <p class="empty-note">Nothing is at or under its reorder level.</p>
+            <?php else: ?>
+                <div class="table-wrap">
+                    <table class="wide-table">
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>SKU</th>
+                                <th class="num">On hand</th>
+                                <th class="num">Reorder level</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($low_items as $item): ?>
+                                <tr>
+                                    <td class="cell-long">
+                                        <?= h($item['name']) ?>
+                                        <?php if ($item['is_controlled']): ?><span class="badge">Controlled</span><?php endif; ?>
+                                    </td>
+                                    <td class="nowrap"><?= h($item['sku']) ?></td>
+                                    <td class="num"><?= h(bud_qty($item['quantity'])) ?> <?= h($item['unit']) ?></td>
+                                    <td class="num"><?= h(bud_qty($item['reorder_level'])) ?></td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </section>
+    </main>
+<?php require 'includes/footer.php'; ?>

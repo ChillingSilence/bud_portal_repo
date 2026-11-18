@@ -70,6 +70,21 @@ else
     ok "no spreadsheet/data files committed"
 fi
 
+# 7. Signed shipping manifests (1.0.0) live beside the database, so in /data
+#    in the app, and are only handed out by coc_document.php by their stored
+#    name. Never a folder under the web root, never a name from a request.
+DOCS=bud_addon/files/general/www/public/includes/documents.php
+if grep -q "dirname(\$db_file) . '/coc_documents'" "$DOCS"; then
+    ok "signed manifests are kept beside the database (/data/coc_documents)"
+else
+    err "includes/documents.php no longer keeps signed manifests beside the database"
+fi
+if grep -q "bud_document_path(" bud_addon/files/general/www/public/coc_document.php; then
+    ok "coc_document.php only serves files by their stored name"
+else
+    err "coc_document.php doesn't check the stored name with bud_document_path()"
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "Database storage checks FAILED" >&2
     exit 1

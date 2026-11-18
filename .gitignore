@@ -2,6 +2,9 @@
 # production data lives on the persistent /data volume)
 bud_addon/files/general/www/public/database/*.db
 bud_addon/files/general/www/public/database/*.sqlite*
+# ...and the signed manifests uploaded while developing (the app keeps them
+# in /data/coc_documents)
+bud_addon/files/general/www/public/database/coc_documents/
 
 # Spreadsheet/data files must NEVER be committed — Section 29 reporting
 # files contain confidential patient data. CI enforces this too.

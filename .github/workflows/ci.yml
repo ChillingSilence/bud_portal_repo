@@ -77,6 +77,32 @@ jobs:
           extensions: pdo_sqlite, zip, simplexml
       - run: bash tests/s29_import_test.sh
 
+  release-fixes:
+    name: NZ time, Materials in, receivers and courier tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite
+      - run: bash tests/nz_time_test.sh
+      - run: bash tests/materials_in_test.sh
+      - run: bash tests/receivers_test.sh
+      - run: bash tests/courier_test.sh
+
+  wording:
+    name: Wording and version check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlite, dom
+      - run: bash tests/check_version.sh
+      - run: bash tests/wording_test.sh
+
   addon-lint:
     name: Home Assistant add-on lint
     runs-on: ubuntu-latest
